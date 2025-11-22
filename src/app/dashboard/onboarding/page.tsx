@@ -14,7 +14,10 @@ export default function OnboardingPage() {
   });
 
   const hyperspellConnected = integrations?.hyperspell?.status === 'connected';
-  const composioConnected = integrations?.composio?.status === 'connected';
+  const composioConnected =
+    integrations?.composio && integrations.composio.length > 0
+      ? integrations.composio.some((app) => app.status === 'connected')
+      : false;
   const allConnected = hyperspellConnected && composioConnected;
 
   if (isLoading) {
@@ -91,13 +94,26 @@ export default function OnboardingPage() {
               />
             </svg>
           }
-          status={integrations?.composio?.status as any}
+          status={
+            (integrations?.composio && integrations.composio.length > 0
+              ? integrations.composio.some((app) => app.status === 'connected')
+                ? 'connected'
+                : integrations.composio.some((app) => app.status === 'pending')
+                  ? 'pending'
+                  : undefined
+              : undefined) as any
+          }
           onConnect={() => {
-            window.location.href = '/api/integrations/composio/connect';
+            window.location.href = '/api/integrations/composio/connect?app=gmail';
           }}
           onDisconnect={() => {
-            if (confirm('Are you sure you want to disconnect Composio?')) {
-              disconnectMutation.mutate({ provider: 'composio' });
+            if (confirm('Are you sure you want to disconnect all Composio apps?')) {
+              // Disconnect all Composio apps
+              integrations?.composio?.forEach((app) => {
+                if (app.appName) {
+                  disconnectMutation.mutate({ provider: 'composio', appName: app.appName });
+                }
+              });
             }
           }}
         />
