@@ -1,0 +1,124 @@
+'use client';
+
+import { trpc } from '@/lib/trpc/client';
+import { IntegrationCard } from '@/components/onboarding/integration-card';
+import { useRouter } from 'next/navigation';
+
+export default function OnboardingPage() {
+  const router = useRouter();
+  const { data: integrations, isLoading, refetch } = trpc.integrations.list.useQuery();
+  const disconnectMutation = trpc.integrations.disconnect.useMutation({
+    onSuccess: () => {
+      refetch();
+    },
+  });
+
+  const hyperspellConnected = integrations?.hyperspell?.status === 'connected';
+  const composioConnected = integrations?.composio?.status === 'connected';
+  const allConnected = hyperspellConnected && composioConnected;
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center min-h-[60vh]">
+        <div className="text-gray-600">Loading integrations...</div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="max-w-4xl mx-auto">
+      <div className="mb-8">
+        <h1 className="text-3xl font-bold text-gray-900 mb-2">Connect Your Tools</h1>
+        <p className="text-gray-600">
+          Connect Hyperspell and Composio to enable Jarvis to access your data and perform actions
+          on your behalf.
+        </p>
+      </div>
+
+      {allConnected && (
+        <div className="mb-6 p-4 bg-green-50 border border-green-200 rounded-lg">
+          <div className="flex items-center gap-2 text-green-800">
+            <svg className="w-5 h-5" fill="currentColor" viewBox="0 0 20 20">
+              <path
+                fillRule="evenodd"
+                d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                clipRule="evenodd"
+              />
+            </svg>
+            <span className="font-medium">All integrations connected!</span>
+          </div>
+          <p className="text-sm text-green-700 mt-1">
+            You're all set. Jarvis can now help you with email, calendar, and workflow management.
+          </p>
+        </div>
+      )}
+
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+        <IntegrationCard
+          name="Hyperspell"
+          description="Search across Gmail, Google Calendar, Slack, and Notion. Gives Jarvis context about your work."
+          icon={
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
+              />
+            </svg>
+          }
+          status={integrations?.hyperspell?.status as any}
+          onConnect={() => {
+            window.location.href = '/api/integrations/hyperspell/connect';
+          }}
+          onDisconnect={() => {
+            if (confirm('Are you sure you want to disconnect Hyperspell?')) {
+              disconnectMutation.mutate({ provider: 'hyperspell' });
+            }
+          }}
+        />
+
+        <IntegrationCard
+          name="Composio"
+          description="Send emails and create calendar events. Gives Jarvis the ability to take actions for you."
+          icon={
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path
+                strokeLinecap="round"
+                strokeLinejoin="round"
+                strokeWidth={2}
+                d="M13 10V3L4 14h7v7l9-11h-7z"
+              />
+            </svg>
+          }
+          status={integrations?.composio?.status as any}
+          onConnect={() => {
+            window.location.href = '/api/integrations/composio/connect';
+          }}
+          onDisconnect={() => {
+            if (confirm('Are you sure you want to disconnect Composio?')) {
+              disconnectMutation.mutate({ provider: 'composio' });
+            }
+          }}
+        />
+      </div>
+
+      {allConnected && (
+        <div className="flex justify-center">
+          <button
+            onClick={() => router.push('/dashboard')}
+            className="px-8 py-3 bg-blue-600 text-white rounded-lg font-semibold hover:bg-blue-700 transition-colors"
+          >
+            Continue to Dashboard →
+          </button>
+        </div>
+      )}
+
+      {!allConnected && (
+        <div className="text-center text-sm text-gray-500">
+          Connect both integrations to start using Jarvis
+        </div>
+      )}
+    </div>
+  );
+}
