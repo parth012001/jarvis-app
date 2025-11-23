@@ -114,14 +114,22 @@ function getComposioClient() {
 
 /**
  * Auth Config IDs for each Composio integration
- * Get these from Composio dashboard after creating auth configs
+ *
+ * These must be configured in .env.local:
+ * - COMPOSIO_GMAIL_AUTH_CONFIG_ID
+ * - COMPOSIO_CALENDAR_AUTH_CONFIG_ID
+ * - COMPOSIO_SLACK_AUTH_CONFIG_ID
+ * - COMPOSIO_NOTION_AUTH_CONFIG_ID
+ * - COMPOSIO_GITHUB_AUTH_CONFIG_ID
+ *
+ * Get these IDs from Composio dashboard after creating auth configs
  */
-const AUTH_CONFIG_IDS: Record<string, string> = {
-  gmail: process.env.COMPOSIO_GMAIL_AUTH_CONFIG_ID || 'ac_M2QcFWIKvXv0',
-  googlecalendar: process.env.COMPOSIO_CALENDAR_AUTH_CONFIG_ID || '',
-  slack: process.env.COMPOSIO_SLACK_AUTH_CONFIG_ID || '',
-  notion: process.env.COMPOSIO_NOTION_AUTH_CONFIG_ID || '',
-  github: process.env.COMPOSIO_GITHUB_AUTH_CONFIG_ID || '',
+const AUTH_CONFIG_IDS: Record<string, string | undefined> = {
+  gmail: process.env.COMPOSIO_GMAIL_AUTH_CONFIG_ID,
+  googlecalendar: process.env.COMPOSIO_CALENDAR_AUTH_CONFIG_ID,
+  slack: process.env.COMPOSIO_SLACK_AUTH_CONFIG_ID,
+  notion: process.env.COMPOSIO_NOTION_AUTH_CONFIG_ID,
+  github: process.env.COMPOSIO_GITHUB_AUTH_CONFIG_ID,
 };
 
 /**
