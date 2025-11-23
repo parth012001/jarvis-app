@@ -3,6 +3,7 @@ import { db } from '@/lib/db';
 import { integrations } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { NextRequest } from 'next/server';
+import { initiateComposioConnection } from '@/lib/composio/client';
 
 /**
  * Composio OAuth Connect Endpoint
@@ -88,8 +89,7 @@ export async function GET(request: NextRequest) {
       console.log(`[Composio Connect] Created new integration for user ${userId}, app ${app}`);
     }
 
-    // Generate Composio OAuth URL
-    // The OAuth URL should redirect to our callback with the connectedAccountId
+    // Generate Composio OAuth URL using SDK
     const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/integrations/composio/callback`;
 
     // Encode state to pass through OAuth flow
@@ -101,17 +101,21 @@ export async function GET(request: NextRequest) {
       })
     ).toString('base64url');
 
-    // Composio OAuth URL format:
-    // https://app.composio.dev/connect?integrationId=<APP>&redirectUrl=<CALLBACK>&state=<STATE>
-    const composioOAuthUrl = new URL('https://app.composio.dev/connect');
-    composioOAuthUrl.searchParams.set('integrationId', app.toUpperCase());
-    composioOAuthUrl.searchParams.set('redirectUrl', callbackUrl);
-    composioOAuthUrl.searchParams.set('state', state);
+    // Include state in callback URL so we can identify the user after OAuth
+    const callbackUrlWithState = `${callbackUrl}?state=${state}`;
 
-    console.log(`[Composio Connect] Redirecting to OAuth: ${composioOAuthUrl.toString()}`);
+    // Use Composio SDK to initiate connection
+    // This handles entity creation and proper OAuth URL generation
+    const { redirectUrl } = await initiateComposioConnection(
+      userId,  // Entity ID = your Clerk user ID
+      app,
+      callbackUrlWithState
+    );
 
-    // Redirect to Composio OAuth
-    return Response.redirect(composioOAuthUrl.toString());
+    console.log(`[Composio Connect] Redirecting to Composio OAuth: ${redirectUrl}`);
+
+    // Redirect to Composio's OAuth URL
+    return Response.redirect(redirectUrl);
   } catch (error) {
     console.error('[Composio Connect] Error:', error);
     return Response.json(

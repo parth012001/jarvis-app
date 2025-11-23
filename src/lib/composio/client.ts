@@ -1,4 +1,5 @@
 import { ComposioIntegration } from '@mastra/composio';
+import { Composio } from '@composio/core';
 
 /**
  * Composio Client Configuration
@@ -97,4 +98,145 @@ export function getComposioAppId(app: ComposioApp): string {
   };
 
   return appMap[app];
+}
+
+/**
+ * Initialize Composio client for OAuth connection management
+ * Separate from ComposioIntegration which is used for tool execution
+ */
+function getComposioClient() {
+  const apiKey = process.env.COMPOSIO_API_KEY;
+  if (!apiKey) {
+    throw new Error('COMPOSIO_API_KEY environment variable is not set');
+  }
+  return new Composio({ apiKey });
+}
+
+/**
+ * Auth Config IDs for each Composio integration
+ * Get these from Composio dashboard after creating auth configs
+ */
+const AUTH_CONFIG_IDS: Record<string, string> = {
+  gmail: process.env.COMPOSIO_GMAIL_AUTH_CONFIG_ID || 'ac_M2QcFWIKvXv0',
+  googlecalendar: process.env.COMPOSIO_CALENDAR_AUTH_CONFIG_ID || '',
+  slack: process.env.COMPOSIO_SLACK_AUTH_CONFIG_ID || '',
+  notion: process.env.COMPOSIO_NOTION_AUTH_CONFIG_ID || '',
+  github: process.env.COMPOSIO_GITHUB_AUTH_CONFIG_ID || '',
+};
+
+/**
+ * Initiate OAuth connection for a user via Composio SDK
+ *
+ * This function intelligently handles connection resumption:
+ * 1. First checks if a pending/initiated connection already exists
+ * 2. If found, returns the existing connection's redirect URL to resume the flow
+ * 3. If not found, creates a new connection
+ *
+ * @param userId - Your internal user ID (becomes Composio entity ID)
+ * @param app - App to connect (gmail, googlecalendar, slack, notion, github)
+ * @param redirectUrl - Your callback URL (with state parameter for identifying the user)
+ * @returns Object with redirectUrl to send user to and connectionId
+ *
+ * @example
+ * ```typescript
+ * const { redirectUrl } = await initiateComposioConnection(
+ *   'user_123',
+ *   'gmail',
+ *   'http://localhost:3000/api/integrations/composio/callback?state=...'
+ * );
+ * // Redirect user to redirectUrl
+ * ```
+ */
+export async function initiateComposioConnection(
+  userId: string,
+  app: string,
+  redirectUrl: string
+) {
+  const composio = getComposioClient();
+
+  // Get auth config ID for the app
+  const authConfigId = AUTH_CONFIG_IDS[app.toLowerCase()];
+  if (!authConfigId) {
+    throw new Error(`No auth config ID found for app: ${app}. Please add it to AUTH_CONFIG_IDS or environment variables.`);
+  }
+
+  try {
+    console.log(`[Composio] Checking for existing connections for user ${userId}, app ${app}`);
+
+    // First, check if there's already a pending/initiated connection for this user + auth config
+    const existingAccounts = await composio.connectedAccounts.list({
+      userId: userId,
+    });
+
+    // Filter for connections matching this auth config that are INITIATED or PENDING
+    // Note: authConfig is an object with an 'id' property, not a string
+    const pendingConnection = existingAccounts.items?.find((account: any) => {
+      const matchesAuthConfig = account.authConfig?.id === authConfigId;
+      const matchesStatus = account.status === 'INITIATED' || account.status === 'PENDING';
+      return matchesAuthConfig && matchesStatus;
+    });
+
+    if (pendingConnection) {
+      console.log(`[Composio] Found existing pending connection:`, {
+        id: pendingConnection.id,
+        status: pendingConnection.status,
+        authConfigId: pendingConnection.authConfig?.id,
+        createdAt: pendingConnection.createdAt,
+      });
+
+      // Check if the connection is stale (older than 30 minutes)
+      const connectionAge = Date.now() - new Date(pendingConnection.createdAt).getTime();
+      const MAX_CONNECTION_AGE = 30 * 60 * 1000; // 30 minutes
+
+      if (connectionAge > MAX_CONNECTION_AGE) {
+        console.log(`[Composio] Connection is stale (${Math.round(connectionAge / 1000 / 60)} minutes old), deleting and recreating...`);
+
+        try {
+          // Delete the stale connection
+          await composio.connectedAccounts.delete(pendingConnection.id);
+          console.log(`[Composio] Deleted stale connection:`, pendingConnection.id);
+
+          // Fall through to create a new connection below
+        } catch (deleteError) {
+          console.error('[Composio] Failed to delete stale connection:', deleteError);
+          // Continue anyway to try creating a new connection
+        }
+      } else {
+        // Connection is fresh, try to resume it
+        const existingRedirectUrl = pendingConnection.data?.redirectUrl || pendingConnection.redirectUrl;
+
+        console.log(`[Composio] Resuming fresh connection with redirectUrl:`, existingRedirectUrl);
+
+        return {
+          redirectUrl: existingRedirectUrl || redirectUrl,
+          connectionId: pendingConnection.id,
+        };
+      }
+    }
+
+    console.log(`[Composio] No pending connection found, creating new connection for user ${userId}, app ${app}, authConfig ${authConfigId}`);
+
+    // No pending connection found, create a new one
+    // Parameters: entityId, authConfigId, options
+    const connection = await composio.connectedAccounts.initiate(
+      userId,        // Entity ID = your user ID
+      authConfigId,  // Auth config ID from dashboard
+      {
+        redirectUrl,  // Callback URL
+      }
+    );
+
+    console.log(`[Composio] Connection initiated:`, {
+      connectionId: connection.connectionId,
+      redirectUrl: connection.redirectUrl,
+    });
+
+    return {
+      redirectUrl: connection.redirectUrl,
+      connectionId: connection.connectionId,
+    };
+  } catch (error) {
+    console.error('[Composio] Connection initiation failed:', error);
+    throw new Error(`Failed to initiate Composio connection for ${app}: ${error instanceof Error ? error.message : 'Unknown error'}`);
+  }
 }
