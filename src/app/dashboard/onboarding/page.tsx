@@ -72,7 +72,7 @@ export default function OnboardingPage() {
           }
           status={integrations?.hyperspell?.status as any}
           onConnect={() => {
-            window.location.href = '/api/integrations/hyperspell/connect';
+            window.open('/api/integrations/hyperspell/connect', '_blank');
           }}
           onDisconnect={() => {
             if (confirm('Are you sure you want to disconnect Hyperspell?')) {
@@ -104,7 +104,7 @@ export default function OnboardingPage() {
               : undefined) as any
           }
           onConnect={() => {
-            window.location.href = '/api/integrations/composio/connect?app=gmail';
+            window.open('/api/integrations/composio/connect?app=gmail', '_blank');
           }}
           onDisconnect={() => {
             if (confirm('Are you sure you want to disconnect all Composio apps?')) {
