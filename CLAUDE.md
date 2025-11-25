@@ -24,8 +24,9 @@ npm run db:push                # Push schema changes directly to DB (dev only)
 npm run db:studio              # Open Drizzle Studio on http://localhost:4983
 
 # Utility Scripts
-node check-db.mjs              # Check database connection and view users
-node quick-sync.mjs            # Manually sync current user to database
+npm run db:check               # Check database connection and view users
+npm run db:sync                # Manually sync current user to database
+npm run debug:integrations     # Debug integration connection status
 ```
 
 ## Architecture
@@ -43,7 +44,7 @@ node quick-sync.mjs            # Manually sync current user to database
 - **Clerk Webhooks** (`src/app/api/webhooks/clerk/route.ts`): Syncs user data from Clerk to database on `user.created`, `user.updated`, `user.deleted` events
 - **User IDs**: Clerk user IDs are primary keys in the `users` table (foreign key constraint)
 
-**Critical**: Users MUST exist in the database before creating integrations. If webhook sync fails, use `node quick-sync.mjs` to manually sync.
+**Critical**: Users MUST exist in the database before creating integrations. If webhook sync fails, use `npm run db:sync` to manually sync.
 
 ### Database Schema
 
@@ -207,7 +208,7 @@ NEXT_PUBLIC_APP_URL=http://localhost:3000  # For OAuth callbacks
 
 ## Critical Development Notes
 
-1. **User Sync**: Clerk webhook MUST sync users to database before they can create integrations. If webhook fails, use `node quick-sync.mjs`.
+1. **User Sync**: Clerk webhook MUST sync users to database before they can create integrations. If webhook fails, use `npm run db:sync`.
 
 2. **OAuth Callbacks**: While callback endpoints exist, the primary flow uses polling (`waitForConnection`) to detect connection status.
 

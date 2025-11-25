@@ -10,7 +10,10 @@
     "db:generate": "drizzle-kit generate",
     "db:migrate": "drizzle-kit migrate",
     "db:push": "drizzle-kit push",
-    "db:studio": "drizzle-kit studio"
+    "db:studio": "drizzle-kit studio",
+    "db:check": "node scripts/db/check-connection.mjs",
+    "db:sync": "node scripts/db/quick-sync.mjs",
+    "debug:integrations": "node scripts/debug/check-integrations.mjs"
   },
   "dependencies": {
     "@ai-sdk/openai": "^2.0.71",
