@@ -1,6 +1,7 @@
 import { db } from '@/lib/db';
 import { integrations } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
+import { getHyperspellClient } from '@/lib/hyperspell/client';
 
 /**
  * Hyperspell OAuth callback endpoint
@@ -38,16 +39,26 @@ export async function GET(req: Request) {
 
     // Update integration status based on callback
     if (status === 'success') {
+      // Query Hyperspell to get list of connected integrations
+      const hyperspell = getHyperspellClient(userId);
+      const connectedIntegrations = await hyperspell.integrations.list();
+
+      // Store connected providers as JSON in connectedAccountId
+      const connectedProviders = connectedIntegrations.integrations.map(i => i.provider);
+
+      console.log('[Hyperspell Callback] Connected providers:', connectedProviders);
+
       await db
         .update(integrations)
         .set({
           status: 'connected',
+          connectedAccountId: JSON.stringify(connectedProviders), // Store as JSON array
           connectedAt: new Date(),
           updatedAt: new Date(),
         })
         .where(eq(integrations.id, integration.id));
 
-      console.log('[Hyperspell Callback] Successfully connected');
+      console.log('[Hyperspell Callback] Successfully connected with providers:', connectedProviders);
 
       return Response.redirect(
         `${process.env.NEXT_PUBLIC_APP_URL}/dashboard/onboarding?connected=hyperspell`

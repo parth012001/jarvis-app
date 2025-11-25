@@ -38,8 +38,8 @@ export async function GET() {
       });
     }
 
-    // Generate Hyperspell OAuth URL
-    const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/integrations/hyperspell/callback`;
+    // Generate Hyperspell OAuth URL with userId in callback
+    const callbackUrl = `${process.env.NEXT_PUBLIC_APP_URL}/api/integrations/hyperspell/callback?userId=${userId}`;
     const connectUrl = await getConnectUrl(userId, callbackUrl);
 
     // Redirect to Hyperspell OAuth

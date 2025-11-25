@@ -26,19 +26,23 @@ export async function getUserToken(userId: string = 'anonymous') {
   return response.token;
 }
 
+// Define supported sources as const array for proper typing
+const DEFAULT_SOURCES = ['google_mail', 'google_calendar', 'notion', 'slack'] as const;
+type HyperspellSource = typeof DEFAULT_SOURCES[number];
+
 // Search memories with context
 export async function searchMemories(
   query: string,
   userId: string = 'anonymous',
   options: {
     answer?: boolean;
-    sources?: string[];
+    sources?: Array<HyperspellSource | string>;
     limit?: number;
   } = {}
 ) {
   const {
     answer = true,
-    sources = ['google_mail', 'google_calendar', 'notion', 'slack'],
+    sources = [...DEFAULT_SOURCES],
     limit = 10
   } = options;
 
@@ -47,14 +51,15 @@ export async function searchMemories(
   const response = await hyperspell.memories.search({
     query,
     answer,
-    sources,
-    limit
+    sources: sources as any, // Type assertion needed for Hyperspell SDK union type
+    options: {
+      max_results: limit
+    }
   });
 
   return {
     answer: response.answer,
-    memories: response.memories,
-    sources: response.sources
+    documents: response.documents, // Changed from 'memories' to 'documents' per SDK v0.26.0
   };
 }
 
@@ -66,13 +71,11 @@ export async function addMemory(
 ) {
   const hyperspell = getHyperspellClient(userId);
 
-  const response = await hyperspell.memories.create({
-    content,
-    metadata: {
-      source: 'jarvis_conversation',
-      timestamp: new Date().toISOString(),
-      ...metadata
-    }
+  // SDK v0.26.0 uses 'add' instead of 'create', and 'text' instead of 'content'
+  const response = await hyperspell.memories.add({
+    text: content,
+    title: metadata?.title || 'Jarvis Conversation',
+    collection: 'jarvis_conversations',
   });
 
   return response;
