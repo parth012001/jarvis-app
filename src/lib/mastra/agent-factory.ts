@@ -4,11 +4,15 @@ import { db } from '@/lib/db';
 import { integrations } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { getComposioTools, getComposioAppId, type ComposioApp } from '../composio/client';
+import { hyperspellSearchTool } from './tools/hyperspell';
 
 /**
  * Mastra Agent Factory
  *
- * Creates user-specific Mastra agents with their connected Composio tools
+ * Creates user-specific Mastra agents with their connected tools:
+ * - Composio tools for actions (send emails, create events, etc.)
+ * - Hyperspell tool for RAG search across user's historical data
+ *
  * Each agent is dynamically created with tools based on user's connections
  */
 
@@ -33,6 +37,24 @@ export async function getUserComposioIntegrations(userId: string) {
 }
 
 /**
+ * Checks if user has Hyperspell connected
+ *
+ * @param userId - Clerk user ID
+ * @returns True if Hyperspell is connected, false otherwise
+ */
+export async function isHyperspellConnected(userId: string): Promise<boolean> {
+  const hyperspellIntegration = await db.query.integrations.findFirst({
+    where: and(
+      eq(integrations.userId, userId),
+      eq(integrations.provider, 'hyperspell'),
+      eq(integrations.status, 'connected')
+    ),
+  });
+
+  return !!hyperspellIntegration;
+}
+
+/**
  * Creates a Mastra agent with user-specific Composio tools
  *
  * @param userId - Clerk user ID
@@ -54,15 +76,17 @@ export async function createUserAgent(
   options: {
     name?: string;
     instructions?: string;
-    model?: any;
+    model?: unknown;
   } = {}
 ) {
-  // Get user's connected Composio integrations
+  // Get user's connected integrations
   const connectedIntegrations = await getUserComposioIntegrations(userId);
+  const hasHyperspell = await isHyperspellConnected(userId);
 
   // Build tools from all connected integrations
-  let tools = {};
+  let tools: Record<string, unknown> = {};
 
+  // 1. Load Composio tools (actions)
   if (connectedIntegrations.length > 0) {
     // Group by connectedAccountId (some apps might share the same account)
     const accountGroups = new Map<string, ComposioApp[]>();
@@ -86,7 +110,7 @@ export async function createUserAgent(
         // Merge tools
         tools = { ...tools, ...accountTools };
 
-        console.log(`[Agent Factory] Loaded tools for ${apps.join(', ')} (account: ${accountId})`);
+        console.log(`[Agent Factory] Loaded Composio tools for ${apps.join(', ')} (account: ${accountId})`);
       } catch (error) {
         console.error(`[Agent Factory] Failed to load tools for account ${accountId}:`, error);
         // Continue with other accounts even if one fails
@@ -94,24 +118,39 @@ export async function createUserAgent(
     }
   }
 
+  // 2. Add Hyperspell tool if connected (memory/RAG search)
+  if (hasHyperspell) {
+    tools.hyperspellSearchTool = hyperspellSearchTool;
+    console.log('[Agent Factory] Added Hyperspell search tool');
+  }
+
+  // Build instructions based on available capabilities
+  const capabilities = [];
+  if (connectedIntegrations.length > 0) {
+    capabilities.push(`- Perform actions on ${connectedIntegrations.map((i) => i.appName).join(', ')}`);
+  }
+  if (hasHyperspell) {
+    capabilities.push('- Search your historical data from Gmail, Calendar, Slack, and Notion');
+  }
+  capabilities.push('- Answer questions and help with general tasks');
+
   // Create agent with user-specific tools
   const agent = new Agent({
     name: options.name || 'Jarvis Assistant',
     instructions:
       options.instructions ||
-      `You are Jarvis, an AI assistant for ${connectedIntegrations.length > 0 ? `managing ${connectedIntegrations.map((i) => i.appName).join(', ')}` : 'helping the user'}.
+      `You are Jarvis, an AI assistant with access to the user's connected applications.
 
-      You have access to the user's connected applications and can help them:
-      ${connectedIntegrations.length > 0 ? `- Access and manage their ${connectedIntegrations.map((i) => i.appName).join(', ')} data` : ''}
-      - Answer questions
-      - Perform tasks on their behalf
+${capabilities.length > 0 ? `Capabilities:\n${capabilities.join('\n')}` : 'The user has not connected any applications yet.'}
 
-      Always be helpful, professional, and respect the user's privacy.`,
+${hasHyperspell ? `\nWhen users ask about past information, emails, meetings, or documents, use the hyperspell-search-memories tool to retrieve relevant context from their connected accounts.` : ''}
+
+Always be helpful, professional, and respect the user's privacy.`,
     model: options.model || openai('gpt-4o'),
     tools,
   });
 
-  console.log(`[Agent Factory] Created agent for user ${userId} with ${Object.keys(tools).length} tools`);
+  console.log(`[Agent Factory] Created agent for user ${userId} with ${Object.keys(tools).length} tools (${connectedIntegrations.length} Composio + ${hasHyperspell ? '1 Hyperspell' : '0 Hyperspell'})`);
 
   return agent;
 }
@@ -119,10 +158,9 @@ export async function createUserAgent(
 /**
  * Creates a lightweight agent instance for users with no connected integrations
  *
- * @param userId - Clerk user ID
  * @returns Basic Mastra Agent without external tools
  */
-export async function createBasicAgent(userId: string) {
+export async function createBasicAgent() {
   return new Agent({
     name: 'Jarvis Assistant',
     instructions: `You are Jarvis, an AI assistant.
