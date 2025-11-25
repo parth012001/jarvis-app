@@ -133,6 +133,64 @@ const AUTH_CONFIG_IDS: Record<string, string | undefined> = {
 };
 
 /**
+ * Wait for a Composio connection to complete
+ *
+ * Polls Composio API until the connection status becomes ACTIVE, FAILED, or times out.
+ * This replaces the need for OAuth callback handling for connection status.
+ *
+ * @param connectionId - The connection ID from initiateComposioConnection
+ * @param timeoutMs - Timeout in milliseconds (default: 120000 = 2 minutes)
+ * @returns Connected account object with id, status, toolkit, etc.
+ * @throws {Error} If connection times out or fails
+ *
+ * @example
+ * ```typescript
+ * try {
+ *   const account = await waitForComposioConnection('conn_abc123', 120000);
+ *   console.log('Connected!', account.id, account.status);
+ * } catch (error) {
+ *   console.error('Connection failed:', error);
+ * }
+ * ```
+ */
+export async function waitForComposioConnection(
+  connectionId: string,
+  timeoutMs: number = 120000
+) {
+  const composio = getComposioClient();
+
+  try {
+    console.log(`[Composio] Waiting for connection ${connectionId} (timeout: ${timeoutMs}ms)`);
+
+    const connectedAccount = await composio.connectedAccounts.waitForConnection(
+      connectionId,
+      timeoutMs
+    );
+
+    console.log(`[Composio] Connection completed:`, {
+      id: connectedAccount.id,
+      status: connectedAccount.status,
+      toolkit: connectedAccount.toolkit?.slug,
+      statusReason: connectedAccount.statusReason,
+    });
+
+    return connectedAccount;
+  } catch (error) {
+    console.error('[Composio] waitForConnection failed:', error);
+
+    // Provide more specific error messages
+    if (error instanceof Error) {
+      if (error.message.includes('timeout')) {
+        throw new Error('Connection timed out. Please try again.');
+      }
+      throw new Error(`Connection failed: ${error.message}`);
+    }
+
+    throw new Error('Connection failed due to an unknown error.');
+  }
+}
+
+/**
  * Initiate OAuth connection for a user via Composio SDK
  *
  * This function intelligently handles connection resumption:
@@ -173,7 +231,7 @@ export async function initiateComposioConnection(
 
     // First, check if there's already a pending/initiated connection for this user + auth config
     const existingAccounts = await composio.connectedAccounts.list({
-      userId: userId,
+      userIds: [userId],
     });
 
     // Filter for connections matching this auth config that are INITIATED or PENDING
@@ -210,14 +268,22 @@ export async function initiateComposioConnection(
           // Continue anyway to try creating a new connection
         }
       } else {
-        // Connection is fresh, try to resume it
-        const existingRedirectUrl = pendingConnection.data?.redirectUrl || pendingConnection.redirectUrl;
+        // Connection is fresh, reuse existing connection ID
+        // We'll need to generate a new redirect URL for this connection
+        console.log(`[Composio] Resuming fresh connection:`, pendingConnection.id);
 
-        console.log(`[Composio] Resuming fresh connection with redirectUrl:`, existingRedirectUrl);
+        // Generate new OAuth URL for the existing connection
+        const connection = await composio.connectedAccounts.initiate(
+          userId,
+          authConfigId,
+          {
+            callbackUrl: redirectUrl,
+          }
+        );
 
         return {
-          redirectUrl: existingRedirectUrl || redirectUrl,
-          connectionId: pendingConnection.id,
+          redirectUrl: connection.redirectUrl,
+          connectionId: pendingConnection.id, // Use existing connection ID
         };
       }
     }
@@ -230,18 +296,21 @@ export async function initiateComposioConnection(
       userId,        // Entity ID = your user ID
       authConfigId,  // Auth config ID from dashboard
       {
-        redirectUrl,  // Callback URL
+        callbackUrl: redirectUrl,  // Callback URL
       }
     );
 
+    // The connection object returned has the OAuth URL and connection details
+    const connectionId = (connection as any).connectionRequest?.id || (connection as any).id || 'unknown';
+
     console.log(`[Composio] Connection initiated:`, {
-      connectionId: connection.connectionId,
+      connectionId,
       redirectUrl: connection.redirectUrl,
     });
 
     return {
       redirectUrl: connection.redirectUrl,
-      connectionId: connection.connectionId,
+      connectionId,
     };
   } catch (error) {
     console.error('[Composio] Connection initiation failed:', error);

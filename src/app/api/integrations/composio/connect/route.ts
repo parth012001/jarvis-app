@@ -112,6 +112,10 @@ export async function GET(request: NextRequest) {
       callbackUrlWithState
     );
 
+    if (!redirectUrl) {
+      throw new Error('Failed to get redirect URL from Composio');
+    }
+
     console.log(`[Composio Connect] Redirecting to Composio OAuth: ${redirectUrl}`);
 
     // Redirect to Composio's OAuth URL
