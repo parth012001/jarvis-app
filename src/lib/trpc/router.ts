@@ -1,6 +1,7 @@
 import { router } from './init';
 import { userRouter } from './routers/user';
 import { integrationsRouter } from './routers/integrations';
+import { chatRouter } from './routers/chat';
 
 /**
  * Main tRPC router
@@ -9,6 +10,7 @@ import { integrationsRouter } from './routers/integrations';
 export const appRouter = router({
   user: userRouter,
   integrations: integrationsRouter,
+  chat: chatRouter,
 });
 
 export type AppRouter = typeof appRouter;

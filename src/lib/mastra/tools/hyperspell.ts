@@ -47,7 +47,8 @@ The tool will return relevant documents with context and an AI-generated answer 
       .array(
         z.object({
           content: z.string().describe('The document content'),
-          metadata: z.record(z.any()).describe('Additional metadata about the document'),
+          source: z.string().optional().describe('Source of the document'),
+          title: z.string().optional().describe('Title of the document'),
         })
       )
       .describe('Array of relevant documents found'),
@@ -86,15 +87,11 @@ The tool will return relevant documents with context and an AI-generated answer 
       });
 
       return {
-        answer: results.answer,
-        documents: results.documents.map((doc) => ({
+        answer: results.answer || undefined,
+        documents: results.documents.map((doc: any) => ({
           content: doc.content || doc.text || '',
-          metadata: {
-            ...doc,
-            // Remove duplicate content field from metadata
-            content: undefined,
-            text: undefined,
-          },
+          source: doc.source || doc.metadata?.source || undefined,
+          title: doc.title || doc.metadata?.title || undefined,
         })),
         documentCount: results.documents.length,
       };

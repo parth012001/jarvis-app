@@ -76,7 +76,7 @@ export async function createUserAgent(
   options: {
     name?: string;
     instructions?: string;
-    model?: unknown;
+    model?: any;
   } = {}
 ) {
   // Get user's connected integrations
@@ -86,8 +86,15 @@ export async function createUserAgent(
   // Build tools from all connected integrations
   let tools: Record<string, unknown> = {};
 
+  // DEBUG: Log tool loading
+  console.log(`[Agent Factory] Loading tools for user ${userId}...`);
+
   // 1. Load Composio tools (actions)
-  if (connectedIntegrations.length > 0) {
+  // TEMPORARILY DISABLED: Testing if Composio tools cause the Zod schema error
+  // TODO: Re-enable once we resolve the Zod v3/v4 compatibility issue
+  const ENABLE_COMPOSIO_TOOLS = false; // Set to true to re-enable
+
+  if (ENABLE_COMPOSIO_TOOLS && connectedIntegrations.length > 0) {
     // Group by connectedAccountId (some apps might share the same account)
     const accountGroups = new Map<string, ComposioApp[]>();
 
@@ -110,12 +117,17 @@ export async function createUserAgent(
         // Merge tools
         tools = { ...tools, ...accountTools };
 
-        console.log(`[Agent Factory] Loaded Composio tools for ${apps.join(', ')} (account: ${accountId})`);
+        // DEBUG: Log each tool loaded
+        const toolNames = Object.keys(accountTools);
+        console.log(`[Agent Factory] Loaded ${toolNames.length} Composio tools for ${apps.join(', ')} (account: ${accountId})`);
+        console.log(`[Agent Factory] Tool names:`, toolNames);
       } catch (error) {
         console.error(`[Agent Factory] Failed to load tools for account ${accountId}:`, error);
         // Continue with other accounts even if one fails
       }
     }
+  } else if (connectedIntegrations.length > 0) {
+    console.log(`[Agent Factory] Composio tools disabled for debugging. Would have loaded tools for: ${connectedIntegrations.map(i => i.appName).join(', ')}`);
   }
 
   // 2. Add Hyperspell tool if connected (memory/RAG search)
@@ -150,7 +162,8 @@ Always be helpful, professional, and respect the user's privacy.`,
     tools,
   });
 
-  console.log(`[Agent Factory] Created agent for user ${userId} with ${Object.keys(tools).length} tools (${connectedIntegrations.length} Composio + ${hasHyperspell ? '1 Hyperspell' : '0 Hyperspell'})`);
+  const composioToolCount = Object.keys(tools).length - (hasHyperspell ? 1 : 0);
+  console.log(`[Agent Factory] Created agent for user ${userId} with ${Object.keys(tools).length} tools (${composioToolCount} Composio + ${hasHyperspell ? '1 Hyperspell' : '0 Hyperspell'})`);
 
   return agent;
 }
