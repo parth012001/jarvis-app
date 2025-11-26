@@ -35,7 +35,7 @@
     "react-dom": "19.2.0",
     "superjson": "^2.2.5",
     "svix": "^1.81.0",
-    "zod": "^4.1.12"
+    "zod": "^3.25.76"
   },
   "devDependencies": {
     "@tailwindcss/postcss": "^4",
@@ -46,7 +46,6 @@
     "eslint": "^9",
     "eslint-config-next": "16.0.3",
     "tailwindcss": "^4",
-
     "typescript": "^5"
   }
 }

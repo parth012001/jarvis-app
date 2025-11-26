@@ -90,11 +90,7 @@ export async function createUserAgent(
   console.log(`[Agent Factory] Loading tools for user ${userId}...`);
 
   // 1. Load Composio tools (actions)
-  // TEMPORARILY DISABLED: Testing if Composio tools cause the Zod schema error
-  // TODO: Re-enable once we resolve the Zod v3/v4 compatibility issue
-  const ENABLE_COMPOSIO_TOOLS = false; // Set to true to re-enable
-
-  if (ENABLE_COMPOSIO_TOOLS && connectedIntegrations.length > 0) {
+  if (connectedIntegrations.length > 0) {
     // Group by connectedAccountId (some apps might share the same account)
     const accountGroups = new Map<string, ComposioApp[]>();
 
@@ -117,17 +113,14 @@ export async function createUserAgent(
         // Merge tools
         tools = { ...tools, ...accountTools };
 
-        // DEBUG: Log each tool loaded
         const toolNames = Object.keys(accountTools);
         console.log(`[Agent Factory] Loaded ${toolNames.length} Composio tools for ${apps.join(', ')} (account: ${accountId})`);
-        console.log(`[Agent Factory] Tool names:`, toolNames);
       } catch (error) {
-        console.error(`[Agent Factory] Failed to load tools for account ${accountId}:`, error);
-        // Continue with other accounts even if one fails
+        // Log error but continue - don't break the agent if Composio fails
+        console.error(`[Agent Factory] Failed to load Composio tools for ${apps.join(', ')}:`, error);
+        console.log(`[Agent Factory] Continuing without Composio tools for this account`);
       }
     }
-  } else if (connectedIntegrations.length > 0) {
-    console.log(`[Agent Factory] Composio tools disabled for debugging. Would have loaded tools for: ${connectedIntegrations.map(i => i.appName).join(', ')}`);
   }
 
   // 2. Add Hyperspell tool if connected (memory/RAG search)
