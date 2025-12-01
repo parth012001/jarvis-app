@@ -1,73 +1,83 @@
-import { ComposioIntegration } from '@mastra/composio';
 import { Composio } from '@composio/core';
+import { MastraProvider } from '@composio/mastra';
 
 /**
  * Composio Client Configuration
  *
- * Creates user-specific Composio integrations for accessing connected apps
- * Each user's connectedAccountId is stored in the database per app
+ * Uses the new @composio/core SDK with MastraProvider for proper API compatibility.
+ * This replaces the deprecated @mastra/composio package.
  */
+
+// Singleton Composio client with MastraProvider
+let composioClient: Composio<MastraProvider> | null = null;
 
 /**
- * Creates a Composio integration instance for a specific user and connected account
- *
- * @param connectedAccountId - The Composio connected account ID from database
- * @param entityId - Optional entity ID (defaults to connectedAccountId)
- * @returns ComposioIntegration instance
- *
- * @example
- * ```typescript
- * const composio = createComposioClient('conn_abc123', 'user_123');
- * const tools = await composio.getTools({ apps: ['GMAIL'] });
- * ```
+ * Gets or creates the Composio client with MastraProvider
  */
-export function createComposioClient(
-  connectedAccountId: string,
-  entityId?: string
-): ComposioIntegration {
-  const apiKey = process.env.COMPOSIO_API_KEY;
+function getComposioClient(): Composio<MastraProvider> {
+  if (!composioClient) {
+    const apiKey = process.env.COMPOSIO_API_KEY;
+    if (!apiKey) {
+      throw new Error('COMPOSIO_API_KEY environment variable is not set');
+    }
 
-  if (!apiKey) {
-    throw new Error('COMPOSIO_API_KEY environment variable is not set');
+    composioClient = new Composio({
+      apiKey,
+      provider: new MastraProvider(),
+    });
   }
-
-  return new ComposioIntegration({
-    config: {
-      API_KEY: apiKey,
-      connectedAccountId,
-      entityId: entityId || connectedAccountId,
-    },
-  });
+  return composioClient;
 }
 
 /**
- * Gets Composio tools for specific apps using a connected account
+ * Gets Composio tools for specific toolkits using a connected account
+ * Uses the new @composio/core SDK with MastraProvider
  *
  * @param connectedAccountId - The Composio connected account ID
- * @param apps - Array of app names (e.g., ['GMAIL', 'GOOGLECALENDAR'])
- * @param entityId - Optional entity ID
- * @returns Tools object from Composio
+ * @param toolkits - Array of toolkit names (e.g., ['gmail', 'googlecalendar']) - lowercase!
+ * @param entityId - Optional entity ID (userId) - not used in new SDK but kept for API compatibility
+ * @returns Tools object formatted for Mastra agents
  *
  * @example
  * ```typescript
- * const tools = await getComposioTools('conn_abc123', ['GMAIL', 'GOOGLECALENDAR']);
- * // Use with Mastra agent
+ * const tools = await getComposioTools('conn_abc123', ['gmail', 'googlecalendar'], 'user_123');
  * const agent = new Agent({ tools, ... });
  * ```
  */
 export async function getComposioTools(
   connectedAccountId: string,
-  apps: string[],
+  toolkits: string[],
   entityId?: string
 ) {
-  const composio = createComposioClient(connectedAccountId, entityId);
+  const composio = getComposioClient();
+
+  // The new SDK expects uppercase toolkit names
+  const normalizedToolkits = toolkits.map(t => t.toUpperCase());
+
+  console.log('[Composio] Getting tools:', {
+    connectedAccountId,
+    entityId,
+    toolkits: normalizedToolkits,
+  });
 
   try {
-    const tools = await composio.getTools({ apps });
+    // Get tools using the new SDK - userId is required, toolkits filter the tools
+    // The entityId (userId) is used to scope tools to that user's connected accounts
+    const userId = entityId || connectedAccountId;
+    const tools = await composio.tools.get(userId, {
+      toolkits: normalizedToolkits,
+    });
+
+    console.log(`[Composio] Loaded ${Object.keys(tools).length} tools for ${normalizedToolkits.join(', ')}`);
+
     return tools;
-  } catch (error) {
-    console.error('[Composio] Failed to get tools:', error);
-    throw new Error(`Failed to get Composio tools for apps: ${apps.join(', ')}`);
+  } catch (error: any) {
+    console.error('[Composio] Failed to get tools:', {
+      error: error?.message,
+      code: error?.code,
+      statusCode: error?.statusCode,
+    });
+    throw new Error(`Failed to get Composio tools for toolkits: ${normalizedToolkits.join(', ')}: ${error?.message}`);
   }
 }
 
@@ -100,17 +110,7 @@ export function getComposioAppId(app: ComposioApp): string {
   return appMap[app];
 }
 
-/**
- * Initialize Composio client for OAuth connection management
- * Separate from ComposioIntegration which is used for tool execution
- */
-function getComposioClient() {
-  const apiKey = process.env.COMPOSIO_API_KEY;
-  if (!apiKey) {
-    throw new Error('COMPOSIO_API_KEY environment variable is not set');
-  }
-  return new Composio({ apiKey });
-}
+// Note: getComposioClient() is defined at the top of this file
 
 /**
  * Auth Config IDs for each Composio integration

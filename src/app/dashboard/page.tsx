@@ -25,7 +25,7 @@ export default function DashboardPage() {
       <div className="bg-white rounded-lg shadow p-6">
         <h2 className="text-xl font-semibold mb-2">Getting Started</h2>
         <p className="text-gray-600 mb-4">
-          Next step: Connect your integrations (Hyperspell & Composio)
+          Next step: Connect your integrations
         </p>
 
         {user && (

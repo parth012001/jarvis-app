@@ -1,6 +1,7 @@
 import { router, protectedProcedure } from '../init';
 import { z } from 'zod';
 import { createUserAgent } from '@/lib/mastra/agent-factory';
+import { RuntimeContext } from '@mastra/core/runtime-context';
 
 /**
  * Chat router - handles AI agent conversations
@@ -25,9 +26,13 @@ export const chatRouter = router({
         const agent = await createUserAgent(ctx.userId);
         console.log(`[Chat] Agent created successfully`);
 
+        // Create RuntimeContext with userId for tools that need it
+        const runtimeContext = new RuntimeContext();
+        runtimeContext.set('userId', ctx.userId);
+
         // Call the agent and get the response
         console.log(`[Chat] Calling agent.stream()...`);
-        const stream = await agent.stream(input.message);
+        const stream = await agent.stream(input.message, { runtimeContext });
 
         // Wait for the complete response
         const text = await stream.text;

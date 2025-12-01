@@ -4,14 +4,12 @@ import { db } from '@/lib/db';
 import { integrations } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { getComposioTools, getComposioAppId, type ComposioApp } from '../composio/client';
-import { hyperspellSearchTool } from './tools/hyperspell';
 
 /**
  * Mastra Agent Factory
  *
- * Creates user-specific Mastra agents with their connected tools:
- * - Composio tools for actions (send emails, create events, etc.)
- * - Hyperspell tool for RAG search across user's historical data
+ * Creates user-specific Mastra agents with their connected Composio tools
+ * for actions (send emails, create events, etc.)
  *
  * Each agent is dynamically created with tools based on user's connections
  */
@@ -34,24 +32,6 @@ export async function getUserComposioIntegrations(userId: string) {
   return userIntegrations.filter(
     (integration) => integration.connectedAccountId && integration.appName
   );
-}
-
-/**
- * Checks if user has Hyperspell connected
- *
- * @param userId - Clerk user ID
- * @returns True if Hyperspell is connected, false otherwise
- */
-export async function isHyperspellConnected(userId: string): Promise<boolean> {
-  const hyperspellIntegration = await db.query.integrations.findFirst({
-    where: and(
-      eq(integrations.userId, userId),
-      eq(integrations.provider, 'hyperspell'),
-      eq(integrations.status, 'connected')
-    ),
-  });
-
-  return !!hyperspellIntegration;
 }
 
 /**
@@ -81,7 +61,6 @@ export async function createUserAgent(
 ) {
   // Get user's connected integrations
   const connectedIntegrations = await getUserComposioIntegrations(userId);
-  const hasHyperspell = await isHyperspellConnected(userId);
 
   // Build tools from all connected integrations
   let tools: Record<string, unknown> = {};
@@ -89,7 +68,7 @@ export async function createUserAgent(
   // DEBUG: Log tool loading
   console.log(`[Agent Factory] Loading tools for user ${userId}...`);
 
-  // 1. Load Composio tools (actions)
+  // Load Composio tools (actions)
   if (connectedIntegrations.length > 0) {
     // Group by connectedAccountId (some apps might share the same account)
     const accountGroups = new Map<string, ComposioApp[]>();
@@ -123,19 +102,10 @@ export async function createUserAgent(
     }
   }
 
-  // 2. Add Hyperspell tool if connected (memory/RAG search)
-  if (hasHyperspell) {
-    tools.hyperspellSearchTool = hyperspellSearchTool;
-    console.log('[Agent Factory] Added Hyperspell search tool');
-  }
-
   // Build instructions based on available capabilities
   const capabilities = [];
   if (connectedIntegrations.length > 0) {
     capabilities.push(`- Perform actions on ${connectedIntegrations.map((i) => i.appName).join(', ')}`);
-  }
-  if (hasHyperspell) {
-    capabilities.push('- Search your historical data from Gmail, Calendar, Slack, and Notion');
   }
   capabilities.push('- Answer questions and help with general tasks');
 
@@ -148,15 +118,12 @@ export async function createUserAgent(
 
 ${capabilities.length > 0 ? `Capabilities:\n${capabilities.join('\n')}` : 'The user has not connected any applications yet.'}
 
-${hasHyperspell ? `\nWhen users ask about past information, emails, meetings, or documents, use the hyperspell-search-memories tool to retrieve relevant context from their connected accounts.` : ''}
-
 Always be helpful, professional, and respect the user's privacy.`,
     model: options.model || openai('gpt-4o'),
     tools,
   });
 
-  const composioToolCount = Object.keys(tools).length - (hasHyperspell ? 1 : 0);
-  console.log(`[Agent Factory] Created agent for user ${userId} with ${Object.keys(tools).length} tools (${composioToolCount} Composio + ${hasHyperspell ? '1 Hyperspell' : '0 Hyperspell'})`);
+  console.log(`[Agent Factory] Created agent for user ${userId} with ${Object.keys(tools).length} Composio tools`);
 
   return agent;
 }

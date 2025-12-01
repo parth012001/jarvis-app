@@ -9,12 +9,12 @@ import {
 } from '@/lib/composio/client';
 
 /**
- * Integrations router - manages user connections to Hyperspell and Composio
+ * Integrations router - manages user connections to Composio
  */
 export const integrationsRouter = router({
   /**
    * List all integrations for the current user
-   * Returns connection status for Hyperspell and Composio apps
+   * Returns connection status for Composio apps
    */
   list: protectedProcedure.query(async ({ ctx }) => {
     const userIntegrations = await ctx.db
@@ -22,8 +22,7 @@ export const integrationsRouter = router({
       .from(integrations)
       .where(eq(integrations.userId, ctx.userId));
 
-    // Separate Hyperspell and Composio integrations
-    const hyperspell = userIntegrations.find((i) => i.provider === 'hyperspell') || null;
+    // Get Composio integrations
     const composioApps = userIntegrations
       .filter((i) => i.provider === 'composio')
       .map((i) => ({
@@ -35,14 +34,6 @@ export const integrationsRouter = router({
       }));
 
     return {
-      hyperspell: hyperspell
-        ? {
-            id: hyperspell.id,
-            status: hyperspell.status,
-            connectedAt: hyperspell.connectedAt,
-            connectedAccountId: hyperspell.connectedAccountId,
-          }
-        : null,
       composio: composioApps,
     };
   }),
@@ -53,7 +44,7 @@ export const integrationsRouter = router({
   getByProvider: protectedProcedure
     .input(
       z.object({
-        provider: z.enum(['hyperspell', 'composio']),
+        provider: z.literal('composio'),
       })
     )
     .query(async ({ ctx, input }) => {
@@ -68,37 +59,29 @@ export const integrationsRouter = router({
     }),
 
   /**
-   * Disconnect an integration
-   * For Hyperspell: removes the integration
-   * For Composio: requires appName to disconnect specific app
+   * Disconnect a Composio integration
+   * Requires appName to disconnect specific app
    */
   disconnect: protectedProcedure
     .input(
       z.object({
-        provider: z.enum(['hyperspell', 'composio']),
-        appName: z.string().optional(), // Required for Composio
+        provider: z.literal('composio'),
+        appName: z.string(),
       })
     )
     .mutation(async ({ ctx, input }) => {
-      const conditions = [
-        eq(integrations.userId, ctx.userId),
-        eq(integrations.provider, input.provider),
-      ];
-
-      // For Composio, require appName
-      if (input.provider === 'composio') {
-        if (!input.appName) {
-          throw new Error('appName is required when disconnecting Composio apps');
-        }
-        conditions.push(eq(integrations.appName, input.appName));
-      }
-
-      await ctx.db.delete(integrations).where(and(...conditions));
+      await ctx.db.delete(integrations).where(
+        and(
+          eq(integrations.userId, ctx.userId),
+          eq(integrations.provider, input.provider),
+          eq(integrations.appName, input.appName)
+        )
+      );
 
       return {
         success: true,
         provider: input.provider,
-        appName: input.appName || null,
+        appName: input.appName,
       };
     }),
 
