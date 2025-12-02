@@ -154,14 +154,15 @@ ${draft.body}`;
         const gmailSendTools = ['GMAIL_SEND_EMAIL', 'GMAIL_REPLY_TO_THREAD'];
 
         const sendToolCalled = toolCalls.some((call: any) => {
-          const toolName = call.toolName || call.name || '';
+          // Tool name can be at call.payload.toolName (Mastra) or call.toolName (other providers)
+          const toolName = call.payload?.toolName || call.toolName || call.name || '';
           return gmailSendTools.some(t => toolName.toUpperCase().includes(t));
         });
 
         console.log(`[Drafts] Agent response:`, {
           text: response.text?.substring(0, 100),
           toolCallsCount: toolCalls.length,
-          toolNames: toolCalls.map((c: any) => c.toolName || c.name),
+          toolNames: toolCalls.map((c: any) => c.payload?.toolName || c.toolName || c.name),
           sendToolCalled,
         });
 
