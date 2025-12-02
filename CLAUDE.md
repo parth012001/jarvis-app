@@ -4,234 +4,175 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-Jarvis is a Next.js 16 application using the App Router with TypeScript, Tailwind CSS, and AI integrations. The app provides authenticated access to AI agent services powered by Mastra, with OAuth integrations for Hyperspell (memory/context search) and Composio (action execution on Gmail, Calendar, Slack, Notion, GitHub).
+**Jarvis** is an AI Chief of Staff - a personal AI assistant that can take real actions on your behalf across connected apps (Gmail, Calendar, Slack, Notion, GitHub). Built with Next.js 16, TypeScript, Mastra AI framework, and Composio for tool execution.
+
+## Current Project State
+
+### What's Working
+- **Authentication**: Clerk sign-in/sign-up with webhook sync to database
+- **Database**: Users + Integrations tables with Drizzle ORM + Neon PostgreSQL
+- **Composio OAuth**: Connect Gmail, Calendar, Slack, Notion, GitHub via popup flow with polling
+- **Onboarding UI**: Integration cards with progress bars, connect/disconnect functionality
+- **Agent Factory**: Creates per-user Mastra agents with their connected Composio tools
+- **Chat UI**: Message input, message list, message bubbles with tool call badges
+- **Chat Backend**: `chat.sendMessage` tRPC mutation that calls the Mastra agent
+
+### What's Missing
+- **Conversation History**: Messages are not persisted to database
+- **Streaming Responses**: Currently request/response, not streamed
+- **Navigation/Sidebar**: No main navigation menu
+- **Settings Page**: No user preferences
+- **Multiple Conversations**: Only one chat thread
+
+### Known Issues
+- `src/lib/composio/client.ts:24` has a TypeScript error with MastraProvider types (pre-existing)
+- Build may fail due to this type mismatch
+
+## File Structure
+
+```
+src/
+├── app/
+│   ├── page.tsx                           # Landing page (public)
+│   ├── dashboard/
+│   │   ├── page.tsx                       # Dashboard home
+│   │   ├── layout.tsx                     # Dashboard layout with navbar
+│   │   ├── chat/page.tsx                  # Chat interface
+│   │   └── onboarding/page.tsx            # Integration setup
+│   └── api/
+│       ├── trpc/[trpc]/route.ts           # tRPC handler
+│       ├── webhooks/clerk/route.ts        # User sync webhook
+│       └── integrations/composio/         # OAuth endpoints
+│
+├── lib/
+│   ├── trpc/
+│   │   ├── router.ts                      # Main router (user, integrations, chat)
+│   │   ├── init.ts                        # tRPC setup, publicProcedure, protectedProcedure
+│   │   ├── context.ts                     # Request context (userId, db)
+│   │   └── routers/
+│   │       ├── user.ts                    # user.me
+│   │       ├── integrations.ts            # list, disconnect, initiateComposioConnection, pollComposioConnection
+│   │       └── chat.ts                    # sendMessage
+│   ├── composio/client.ts                 # Composio SDK wrapper, getComposioTools, initiateComposioConnection
+│   ├── mastra/agent-factory.ts            # createUserAgent, getUserComposioIntegrations
+│   └── db/
+│       ├── schema.ts                      # users, integrations tables
+│       └── index.ts                       # Drizzle client
+│
+├── components/
+│   ├── chat/
+│   │   ├── message-input.tsx              # Text input with send button
+│   │   ├── message-list.tsx               # Message container with auto-scroll
+│   │   └── message-bubble.tsx             # Individual message styling
+│   └── onboarding/
+│       └── integration-card.tsx           # OAuth connection card with progress
+│
+└── hooks/
+    └── useComposioConnection.ts           # OAuth popup flow with polling
+```
 
 ## Development Commands
 
 ```bash
-# Development
 npm run dev                    # Start dev server on http://localhost:3000
-
-# Build & Deploy
 npm run build                  # Production build
-npm run start                  # Start production server
 npm run lint                   # Run ESLint
 
-# Database (Drizzle ORM + Neon PostgreSQL)
-npm run db:generate            # Generate migration files from schema
+# Database
+npm run db:generate            # Generate migration files
 npm run db:migrate             # Run migrations
-npm run db:push                # Push schema changes directly to DB (dev only)
-npm run db:studio              # Open Drizzle Studio on http://localhost:4983
-
-# Utility Scripts
-npm run db:check               # Check database connection and view users
-npm run db:sync                # Manually sync current user to database
-npm run debug:integrations     # Debug integration connection status
+npm run db:push                # Push schema directly (dev only)
+npm run db:studio              # Drizzle Studio on http://localhost:4983
+npm run db:check               # Check DB connection
+npm run db:sync                # Manually sync current user to DB
 ```
 
 ## Architecture
 
 ### Three-Layer Stack
+1. **Frontend**: Next.js 16 + React 19, App Router, Tailwind CSS
+2. **API**: tRPC v11 with React Query, Zod validation
+3. **Database**: Drizzle ORM + Neon PostgreSQL (serverless)
 
-1. **Frontend (Next.js 16 + React 19)**: App Router with server/client components
-2. **API Layer (tRPC v11)**: Type-safe RPC with React Query
-3. **Database (Drizzle ORM + Neon PostgreSQL)**: Serverless HTTP database
-
-### Authentication & Authorization
-
-- **Clerk**: Handles all authentication (sign-in, sign-up, user management)
-- **Middleware** (`src/middleware.ts`): Protects all routes except public ones (`/`, `/sign-in`, `/sign-up`, `/api/webhooks`)
-- **Clerk Webhooks** (`src/app/api/webhooks/clerk/route.ts`): Syncs user data from Clerk to database on `user.created`, `user.updated`, `user.deleted` events
-- **User IDs**: Clerk user IDs are primary keys in the `users` table (foreign key constraint)
-
-**Critical**: Users MUST exist in the database before creating integrations. If webhook sync fails, use `npm run db:sync` to manually sync.
+### Authentication
+- Clerk handles sign-in/sign-up
+- Middleware protects routes except: `/`, `/sign-in`, `/sign-up`, `/api/webhooks`
+- Clerk webhooks sync users to database
+- User IDs are Clerk IDs (primary key in users table)
 
 ### Database Schema
 
-**Location**: `src/lib/db/schema.ts`
+**users** table:
+- `id` (text, PK) - Clerk user ID
+- `email`, `firstName`, `lastName`, `imageUrl`
 
-**Tables**:
-- `users`: Synced from Clerk via webhooks
-  - `id` (text, PK): Clerk user ID
-  - `email` (text, unique)
-  - `firstName`, `lastName`, `imageUrl`
+**integrations** table:
+- `id` (uuid, PK)
+- `userId` (FK → users.id, cascade delete)
+- `provider` ('composio')
+- `appName` ('gmail'|'googlecalendar'|'slack'|'notion'|'github')
+- `connectedAccountId` - OAuth connection ID from Composio
+- `status` ('pending'|'connected'|'error')
 
-- `integrations`: Tracks OAuth connections per user
-  - `id` (uuid, PK)
-  - `userId` (text, FK → users.id, cascade delete)
-  - `provider` ('hyperspell' | 'composio')
-  - `appName` (null for Hyperspell, 'gmail'|'googlecalendar'|etc for Composio)
-  - `connectedAccountId` (OAuth token/connection ID)
-  - `status` ('pending' | 'connected' | 'error')
-  - **Unique constraint**: (userId, provider, appName)
-  - **Indexes**: Fast lookups by user, provider, and status
-
-### tRPC API Architecture
-
-**Structure**:
-- `src/lib/trpc/init.ts`: Core setup with `publicProcedure` and `protectedProcedure`
-- `src/lib/trpc/context.ts`: Request context with `userId` (from Clerk) and `db` (Drizzle client)
-- `src/lib/trpc/router.ts`: Main router combining sub-routers
-- `src/lib/trpc/routers/`: Individual routers
-  - `user.ts`: User-related operations
-  - `integrations.ts`: OAuth connection management
-- `src/app/api/trpc/[trpc]/route.ts`: HTTP handler
-
-**Client-side**:
-- `src/lib/trpc/client.ts`: Browser tRPC client
-- `src/lib/trpc/provider.tsx`: React Query provider wrapper
-
-**Key Pattern**: Protected procedures automatically throw `UNAUTHORIZED` if `userId` is null.
-
-### Composio Integration Architecture
-
-**Files**:
-- `src/lib/composio/client.ts`: Core Composio SDK wrapper
-- `src/hooks/useComposioConnection.ts`: React hook for OAuth flow
-- `src/lib/mastra/agent-factory.ts`: Creates agents with user's connected tools
-
-**OAuth Flow (Polling-Based)**:
-1. User clicks "Connect" on integration card
-2. `useComposioConnection` hook calls `integrations.initiateComposioConnection` (tRPC)
-3. Backend creates pending integration, returns OAuth URL + connectionId
-4. Frontend opens OAuth popup window
-5. Backend calls `waitForComposioConnection()` - polls Composio API until ACTIVE/FAILED
-6. Database updated with final status and connectedAccountId
-7. Frontend receives result via tRPC mutation
-
-**Key Functions**:
-- `initiateComposioConnection()`: Creates connection, returns OAuth URL
-- `waitForComposioConnection(connectionId, timeout)`: Polls until complete (replaces callback dependency)
-- `createUserAgent(userId)`: Dynamically creates Mastra agent with user's connected tools
-
-**Supported Apps**: gmail, googlecalendar, slack, notion, github
-
-**Environment Variables Required**:
-- `COMPOSIO_API_KEY`
-- `COMPOSIO_GMAIL_AUTH_CONFIG_ID`
-- `COMPOSIO_CALENDAR_AUTH_CONFIG_ID`
-- `COMPOSIO_SLACK_AUTH_CONFIG_ID`
-- `COMPOSIO_NOTION_AUTH_CONFIG_ID`
-- `COMPOSIO_GITHUB_AUTH_CONFIG_ID`
-
-### Hyperspell Integration
-
-**Files**:
-- `src/lib/hyperspell/client.ts`: Hyperspell SDK wrapper
-- OAuth endpoints: `/api/integrations/hyperspell/connect` → `/api/integrations/hyperspell/callback`
-
-**Functions**:
-- `getHyperspellClient(userId)`: Creates SDK instance
-- `searchMemories(query, userId)`: Search across Gmail, Calendar, Slack, Notion
-- `addMemory(content, userId)`: Store conversation context
-- `getConnectUrl(userId, redirectUri)`: Generate OAuth URL
-
-**Key Pattern**: Tokens managed server-side by Hyperspell (not stored in database).
+### Composio OAuth Flow
+1. User clicks Connect → `useComposioConnection` hook calls tRPC
+2. Backend creates pending integration, returns OAuth URL
+3. Frontend opens popup window
+4. Backend polls `waitForComposioConnection()` until ACTIVE/FAILED
+5. Database updated, frontend receives result
 
 ### Mastra Agent System
-
-**Agent Factory** (`src/lib/mastra/agent-factory.ts`):
-- `createUserAgent(userId)`: Creates agent with user's connected Composio tools
-- `getUserComposioIntegrations(userId)`: Fetches connected apps from database
-- Dynamically loads tools based on user's OAuth connections
-
-**Pattern**: Each user gets a personalized agent with only their authorized tools.
-
-### Frontend Pages & Components
-
-**Routes**:
-- `/` - Landing page (public)
-- `/sign-in`, `/sign-up` - Clerk auth pages
-- `/dashboard` - Main dashboard (protected)
-- `/dashboard/onboarding` - Integration setup (protected)
-
-**Key Components**:
-- `src/components/onboarding/integration-card.tsx`: OAuth connection UI with progress
-- `src/hooks/useComposioConnection.ts`: React hook for managing OAuth flow
-
-**Pattern**: Uses custom hook for complex OAuth state management (popup handling, polling, progress simulation).
+- `createUserAgent(userId)` creates GPT-4o agent with user's Composio tools
+- Agent can execute actions on connected apps (send emails, create events, etc.)
+- Tools loaded dynamically based on user's OAuth connections
 
 ## Environment Variables
-
-Required in `.env.local`:
 
 ```bash
 # Database
 DATABASE_URL=                          # Neon PostgreSQL connection string
 
-# Clerk Authentication
-NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=     # Public key for client-side
-CLERK_SECRET_KEY=                      # Secret key for server-side
-CLERK_WEBHOOK_SECRET=                  # Webhook signature verification
-
-# Hyperspell
-HYPERSPELL_API_KEY=                    # Format: hs-0-xxxxx
+# Clerk
+NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY=
+CLERK_SECRET_KEY=
+CLERK_WEBHOOK_SECRET=
 
 # Composio
-COMPOSIO_API_KEY=                      # Composio API key
-COMPOSIO_GMAIL_AUTH_CONFIG_ID=         # Auth config IDs from Composio dashboard
+COMPOSIO_API_KEY=
+COMPOSIO_GMAIL_AUTH_CONFIG_ID=
 COMPOSIO_CALENDAR_AUTH_CONFIG_ID=
 COMPOSIO_SLACK_AUTH_CONFIG_ID=
 COMPOSIO_NOTION_AUTH_CONFIG_ID=
 COMPOSIO_GITHUB_AUTH_CONFIG_ID=
 
-# App URL
-NEXT_PUBLIC_APP_URL=http://localhost:3000  # For OAuth callbacks
+# App
+NEXT_PUBLIC_APP_URL=http://localhost:3000
 ```
 
-## Key Patterns & Conventions
+## Key Patterns
 
-### Database Operations
-- Always use Drizzle client from `src/lib/db`
-- Foreign key constraints enforced (users must exist before integrations)
-- Use `onConflictDoUpdate` for upserts in webhooks
+### tRPC
+- `protectedProcedure` for authenticated endpoints (auto-throws if no userId)
+- Zod schemas for input validation
+- Type-safe client with React Query hooks
 
-### tRPC Patterns
-- Use `protectedProcedure` for authenticated endpoints
-- Use `z.object()` from Zod for input validation
-- Return type-safe objects (auto-inferred by tRPC client)
+### OAuth
+- Polling over callbacks for reliability
+- Popup windows (600x700px) for better UX
+- Progress simulation during polling (0-90%, 100% on success)
 
-### OAuth Integration Patterns
-- **Polling over callbacks**: Use `waitForConnection()` to poll status instead of relying on OAuth redirects
-- **Popup windows**: Open OAuth in centered popup (600x700px) for better UX
-- **Progress feedback**: Simulate progress (0-90%) during polling, 100% on success
-- **Cleanup**: Always cleanup timers, intervals, and popup refs on unmount
-
-### React Hooks
-- Custom hooks for complex state management (`useComposioConnection`)
-- Return functions, state, and error handlers
-- Handle cleanup in `useEffect` return function
-
-### Import Aliases
-- Use `@/` for `src/` directory imports
-- Example: `import { db } from '@/lib/db'`
-
-## Critical Development Notes
-
-1. **User Sync**: Clerk webhook MUST sync users to database before they can create integrations. If webhook fails, use `npm run db:sync`.
-
-2. **OAuth Callbacks**: While callback endpoints exist, the primary flow uses polling (`waitForConnection`) to detect connection status.
-
-3. **TypeScript Strict**: Project uses strict TypeScript. Composio SDK types may require `as any` casts for undocumented properties.
-
-4. **Next.js 16 Middleware**: Deprecation warning about middleware is expected (will migrate to proxy pattern in future).
-
-5. **Connection States**:
-   - `pending`: OAuth initiated but not completed
-   - `connected`: OAuth successful, has connectedAccountId
-   - `error`: OAuth failed or timed out
-
-6. **Database Constraints**: Always check users exist before inserting integrations (foreign key will fail otherwise).
+### Database
+- Foreign key constraints enforced
+- Users must exist before creating integrations
+- Use `npm run db:sync` if webhook fails
 
 ## Key Dependencies
 
-- Next.js 16 with React 19
-- @clerk/nextjs 6.35.4 (authentication)
-- @trpc/server, @trpc/client, @trpc/react-query 11.7.1 (API)
-- @tanstack/react-query 5.90.10 (data fetching)
-- drizzle-orm 0.44.7 + @neondatabase/serverless (database)
-- @composio/core 0.2.5 + @mastra/composio 0.1.13 (action execution)
-- @mastra/core 0.24.5 (AI agent framework)
-- hyperspell 0.26.0 (memory/context search)
-- zod 4.1.12 (validation)
-- superjson 2.2.5 (data serialization for tRPC)
+- Next.js 16 + React 19
+- @clerk/nextjs (authentication)
+- @trpc/server, @trpc/client, @trpc/react-query (API)
+- drizzle-orm + @neondatabase/serverless (database)
+- @composio/core + @composio/mastra (tool execution)
+- @mastra/core (AI agent framework)
+- @ai-sdk/openai (GPT-4o model)
+- zod (validation)

@@ -45,12 +45,11 @@ export default function OnboardingPage() {
     },
   });
 
-  const hyperspellConnected = integrations?.hyperspell?.status === 'connected';
   const composioConnected =
     integrations?.composio && integrations.composio.length > 0
       ? integrations.composio.some((app) => app.status === 'connected')
       : false;
-  const allConnected = hyperspellConnected && composioConnected;
+  const allConnected = composioConnected;
 
   if (isLoading) {
     return (
@@ -65,8 +64,7 @@ export default function OnboardingPage() {
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-gray-900 mb-2">Connect Your Tools</h1>
         <p className="text-gray-600">
-          Connect Hyperspell and Composio to enable Jarvis to access your data and perform actions
-          on your behalf.
+          Connect your apps to enable Jarvis to perform actions on your behalf.
         </p>
       </div>
 
@@ -147,30 +145,6 @@ export default function OnboardingPage() {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
         <IntegrationCard
-          name="Hyperspell"
-          description="Search across Gmail, Google Calendar, Slack, and Notion. Gives Jarvis context about your work."
-          icon={
-            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M21 21l-6-6m2-5a7 7 0 11-14 0 7 7 0 0114 0z"
-              />
-            </svg>
-          }
-          status={integrations?.hyperspell?.status as any}
-          onConnect={() => {
-            window.open('/api/integrations/hyperspell/connect', '_blank');
-          }}
-          onDisconnect={() => {
-            if (confirm('Are you sure you want to disconnect Hyperspell?')) {
-              disconnectMutation.mutate({ provider: 'hyperspell' });
-            }
-          }}
-        />
-
-        <IntegrationCard
           name="Composio"
           description="Send emails and create calendar events. Gives Jarvis the ability to take actions for you."
           icon={
@@ -225,7 +199,7 @@ export default function OnboardingPage() {
 
       {!allConnected && (
         <div className="text-center text-sm text-gray-500">
-          Connect both integrations to start using Jarvis
+          Connect an app to start using Jarvis
         </div>
       )}
     </div>

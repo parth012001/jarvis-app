@@ -3,12 +3,14 @@ import { openai } from '@ai-sdk/openai';
 import { db } from '@/lib/db';
 import { integrations } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
-import { getComposioTools, getComposioAppId, type ComposioApp } from '../composio/client';
+import { getComposioTools, getComposioToolsBySlug, getComposioAppId, GMAIL_ACTION_TOOLS, type ComposioApp } from '../composio/client';
 
 /**
  * Mastra Agent Factory
  *
  * Creates user-specific Mastra agents with their connected Composio tools
+ * for actions (send emails, create events, etc.)
+ *
  * Each agent is dynamically created with tools based on user's connections
  */
 
@@ -57,12 +59,16 @@ export async function createUserAgent(
     model?: any;
   } = {}
 ) {
-  // Get user's connected Composio integrations
+  // Get user's connected integrations
   const connectedIntegrations = await getUserComposioIntegrations(userId);
 
   // Build tools from all connected integrations
-  let tools = {};
+  let tools: Record<string, unknown> = {};
 
+  // DEBUG: Log tool loading
+  console.log(`[Agent Factory] Loading tools for user ${userId}...`);
+
+  // Load Composio tools (actions)
   if (connectedIntegrations.length > 0) {
     // Group by connectedAccountId (some apps might share the same account)
     const accountGroups = new Map<string, ComposioApp[]>();
@@ -86,32 +92,50 @@ export async function createUserAgent(
         // Merge tools
         tools = { ...tools, ...accountTools };
 
-        console.log(`[Agent Factory] Loaded tools for ${apps.join(', ')} (account: ${accountId})`);
+        const toolNames = Object.keys(accountTools);
+        console.log(`[Agent Factory] Loaded ${toolNames.length} Composio tools for ${apps.join(', ')} (account: ${accountId})`);
+
+        // If Gmail is connected, also load the action tools (SEND_EMAIL, REPLY_TO_THREAD)
+        // These are NOT included in the default GMAIL toolkit
+        if (apps.includes('gmail')) {
+          try {
+            const gmailActionTools = await getComposioToolsBySlug(userId, [...GMAIL_ACTION_TOOLS]);
+            tools = { ...tools, ...gmailActionTools };
+            console.log(`[Agent Factory] Loaded ${Object.keys(gmailActionTools).length} Gmail action tools (send/reply)`);
+          } catch (gmailError) {
+            console.warn(`[Agent Factory] Failed to load Gmail action tools:`, gmailError);
+          }
+        }
       } catch (error) {
-        console.error(`[Agent Factory] Failed to load tools for account ${accountId}:`, error);
-        // Continue with other accounts even if one fails
+        // Log error but continue - don't break the agent if Composio fails
+        console.error(`[Agent Factory] Failed to load Composio tools for ${apps.join(', ')}:`, error);
+        console.log(`[Agent Factory] Continuing without Composio tools for this account`);
       }
     }
   }
+
+  // Build instructions based on available capabilities
+  const capabilities = [];
+  if (connectedIntegrations.length > 0) {
+    capabilities.push(`- Perform actions on ${connectedIntegrations.map((i) => i.appName).join(', ')}`);
+  }
+  capabilities.push('- Answer questions and help with general tasks');
 
   // Create agent with user-specific tools
   const agent = new Agent({
     name: options.name || 'Jarvis Assistant',
     instructions:
       options.instructions ||
-      `You are Jarvis, an AI assistant for ${connectedIntegrations.length > 0 ? `managing ${connectedIntegrations.map((i) => i.appName).join(', ')}` : 'helping the user'}.
+      `You are Jarvis, an AI assistant with access to the user's connected applications.
 
-      You have access to the user's connected applications and can help them:
-      ${connectedIntegrations.length > 0 ? `- Access and manage their ${connectedIntegrations.map((i) => i.appName).join(', ')} data` : ''}
-      - Answer questions
-      - Perform tasks on their behalf
+${capabilities.length > 0 ? `Capabilities:\n${capabilities.join('\n')}` : 'The user has not connected any applications yet.'}
 
-      Always be helpful, professional, and respect the user's privacy.`,
+Always be helpful, professional, and respect the user's privacy.`,
     model: options.model || openai('gpt-4o'),
     tools,
   });
 
-  console.log(`[Agent Factory] Created agent for user ${userId} with ${Object.keys(tools).length} tools`);
+  console.log(`[Agent Factory] Created agent for user ${userId} with ${Object.keys(tools).length} Composio tools`);
 
   return agent;
 }
@@ -119,10 +143,9 @@ export async function createUserAgent(
 /**
  * Creates a lightweight agent instance for users with no connected integrations
  *
- * @param userId - Clerk user ID
  * @returns Basic Mastra Agent without external tools
  */
-export async function createBasicAgent(userId: string) {
+export async function createBasicAgent() {
   return new Agent({
     name: 'Jarvis Assistant',
     instructions: `You are Jarvis, an AI assistant.

@@ -7,6 +7,17 @@ import superjson from 'superjson';
  */
 const t = initTRPC.context<Context>().create({
   transformer: superjson,
+  // Enable SSE for subscriptions
+  sse: {
+    maxDurationMs: 5 * 60 * 1000, // 5 minutes max connection
+    ping: {
+      enabled: true,
+      intervalMs: 3000, // Keep-alive ping every 3 seconds
+    },
+    client: {
+      reconnectAfterInactivityMs: 5000, // Reconnect after 5 seconds of inactivity
+    },
+  },
 });
 
 /**
