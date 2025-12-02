@@ -145,8 +145,33 @@ ${draft.body}`;
 
         console.log(`[Drafts] Sending email to ${draft.recipient}`);
 
-        // Send via agent
-        await agent.generate(sendPrompt);
+        // Send via agent and capture the response
+        const response = await agent.generate(sendPrompt);
+
+        // Verify that a Gmail send tool was actually called
+        // The response contains toolCalls array with the tools that were invoked
+        const toolCalls = response.toolCalls || [];
+        const gmailSendTools = ['GMAIL_SEND_EMAIL', 'GMAIL_REPLY_TO_THREAD'];
+
+        const sendToolCalled = toolCalls.some((call: any) => {
+          const toolName = call.toolName || call.name || '';
+          return gmailSendTools.some(t => toolName.toUpperCase().includes(t));
+        });
+
+        console.log(`[Drafts] Agent response:`, {
+          text: response.text?.substring(0, 100),
+          toolCallsCount: toolCalls.length,
+          toolNames: toolCalls.map((c: any) => c.toolName || c.name),
+          sendToolCalled,
+        });
+
+        if (!sendToolCalled) {
+          console.error(`[Drafts] No Gmail send tool was called. Tool calls:`, toolCalls);
+          throw new TRPCError({
+            code: 'INTERNAL_SERVER_ERROR',
+            message: 'Email could not be sent: Gmail send tool was not available or not called. Please ensure Gmail is connected.',
+          });
+        }
 
         // Update draft status
         await ctx.db

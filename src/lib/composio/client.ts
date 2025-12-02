@@ -82,6 +82,64 @@ export async function getComposioTools(
 }
 
 /**
+ * Gets specific Composio tools by their action slugs
+ *
+ * Use this when you need specific actions that aren't included in the default toolkit.
+ * For example, GMAIL_SEND_EMAIL is not included in the GMAIL toolkit by default.
+ *
+ * @param entityId - The user ID (entity ID in Composio)
+ * @param toolSlugs - Array of specific tool slugs (e.g., ['GMAIL_SEND_EMAIL', 'GMAIL_REPLY_TO_THREAD'])
+ * @returns Tools object formatted for Mastra agents
+ *
+ * @example
+ * ```typescript
+ * const sendTools = await getComposioToolsBySlug('user_123', ['GMAIL_SEND_EMAIL', 'GMAIL_REPLY_TO_THREAD']);
+ * ```
+ */
+export async function getComposioToolsBySlug(
+  entityId: string,
+  toolSlugs: string[]
+): Promise<Record<string, unknown>> {
+  const composio = getComposioClient();
+
+  console.log('[Composio] Getting specific tools by slug:', {
+    entityId,
+    toolSlugs,
+  });
+
+  const allTools: Record<string, unknown> = {};
+
+  for (const slug of toolSlugs) {
+    try {
+      // Fetch each tool individually by its slug
+      const tool = await composio.tools.get(entityId, slug);
+
+      if (tool && typeof tool === 'object') {
+        // The SDK returns a single tool object keyed by the tool name
+        Object.assign(allTools, tool);
+        console.log(`[Composio] Loaded tool: ${slug}`);
+      }
+    } catch (error: any) {
+      // Log but don't fail - some tools might not be available
+      console.warn(`[Composio] Failed to load tool ${slug}:`, error?.message);
+    }
+  }
+
+  console.log(`[Composio] Loaded ${Object.keys(allTools).length}/${toolSlugs.length} specific tools`);
+
+  return allTools;
+}
+
+/**
+ * Essential Gmail action tools that are NOT included in the default GMAIL toolkit
+ * These must be explicitly requested when sending/replying to emails
+ */
+export const GMAIL_ACTION_TOOLS = [
+  'GMAIL_SEND_EMAIL',
+  'GMAIL_REPLY_TO_THREAD',
+] as const;
+
+/**
  * Supported Composio apps for Jarvis
  * Add more as needed
  */

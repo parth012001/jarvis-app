@@ -3,7 +3,7 @@ import { openai } from '@ai-sdk/openai';
 import { db } from '@/lib/db';
 import { integrations } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
-import { getComposioTools, getComposioAppId, type ComposioApp } from '../composio/client';
+import { getComposioTools, getComposioToolsBySlug, getComposioAppId, GMAIL_ACTION_TOOLS, type ComposioApp } from '../composio/client';
 
 /**
  * Mastra Agent Factory
@@ -94,6 +94,18 @@ export async function createUserAgent(
 
         const toolNames = Object.keys(accountTools);
         console.log(`[Agent Factory] Loaded ${toolNames.length} Composio tools for ${apps.join(', ')} (account: ${accountId})`);
+
+        // If Gmail is connected, also load the action tools (SEND_EMAIL, REPLY_TO_THREAD)
+        // These are NOT included in the default GMAIL toolkit
+        if (apps.includes('gmail')) {
+          try {
+            const gmailActionTools = await getComposioToolsBySlug(userId, [...GMAIL_ACTION_TOOLS]);
+            tools = { ...tools, ...gmailActionTools };
+            console.log(`[Agent Factory] Loaded ${Object.keys(gmailActionTools).length} Gmail action tools (send/reply)`);
+          } catch (gmailError) {
+            console.warn(`[Agent Factory] Failed to load Gmail action tools:`, gmailError);
+          }
+        }
       } catch (error) {
         // Log error but continue - don't break the agent if Composio fails
         console.error(`[Agent Factory] Failed to load Composio tools for ${apps.join(', ')}:`, error);
