@@ -191,14 +191,16 @@ function extractEmailData(payload: any): IncomingEmail {
     '(No Subject)';
 
   // Try to extract body - prefer full body, fall back to snippet
+  // Composio sends email body in message_text field
   const body =
+    data.message_text ||
     data.body ||
     data.text ||
     data.textBody ||
     data.text_body ||
     data.content ||
     data.snippet ||
-    data.preview ||
+    data.preview?.body ||
     '';
 
   // Try to extract snippet separately
