@@ -50,12 +50,13 @@ export async function createGmailTrigger(
 
   try {
     // SDK uses camelCase for parameters
+    // NOTE: interval is in MINUTES, not seconds!
     const response = await composio.triggers.create(userId, 'GMAIL_NEW_GMAIL_MESSAGE', {
       connectedAccountId,
       triggerConfig: {
         labelIds: 'INBOX',
         userId: 'me',
-        interval: 60, // Check every 60 seconds
+        interval: 1, // Check every 1 minute (interval is in minutes)
       },
     });
 

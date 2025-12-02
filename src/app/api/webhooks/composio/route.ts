@@ -58,7 +58,10 @@ export async function POST(req: NextRequest) {
     }
 
     // Extract trigger ID - try multiple possible field names
+    // Composio sends trigger_nano_id in payload.data for Gmail triggers
     const triggerId =
+      payload.data?.trigger_nano_id ||
+      payload.data?.triggerId ||
       payload.triggerId ||
       payload.trigger_id ||
       payload.triggerInstanceId ||
