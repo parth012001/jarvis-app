@@ -1,0 +1,182 @@
+/**
+ * Email Embeddings Service
+ *
+ * Handles generating and storing embeddings for emails.
+ * Uses Mastra PgVector for storage and AI SDK for embedding generation.
+ */
+import { PgVector } from '@mastra/pg';
+import { embed } from 'ai';
+import { openai } from '@ai-sdk/openai';
+
+// Singleton PgVector instance
+let pgVectorInstance: PgVector | null = null;
+
+function getPgVector(): PgVector {
+  if (!pgVectorInstance) {
+    const connectionString = process.env.DATABASE_URL;
+    if (!connectionString) {
+      throw new Error('DATABASE_URL not set');
+    }
+    pgVectorInstance = new PgVector({ connectionString });
+  }
+  return pgVectorInstance;
+}
+
+// Constants
+const INDEX_NAME = 'email_embeddings';
+const EMBEDDING_MODEL = 'text-embedding-3-small';
+
+/**
+ * Prepare email content for embedding
+ * Combines subject, from, and body into a single string
+ */
+function prepareEmailContent(email: {
+  from: string;
+  subject: string;
+  body: string;
+}): string {
+  // Combine key fields into searchable content
+  // Format: "From: sender\nSubject: subject\n\nbody"
+  const parts = [];
+
+  if (email.from) {
+    parts.push(`From: ${email.from}`);
+  }
+  if (email.subject) {
+    parts.push(`Subject: ${email.subject}`);
+  }
+  if (email.body) {
+    parts.push('', email.body); // Empty string adds newline separator
+  }
+
+  return parts.join('\n').trim();
+}
+
+/**
+ * Generate embedding for email content
+ */
+async function generateEmbedding(content: string): Promise<number[]> {
+  const { embedding } = await embed({
+    model: openai.embedding(EMBEDDING_MODEL),
+    value: content,
+  });
+  return embedding;
+}
+
+/**
+ * Store email embedding in vector database
+ *
+ * @param emailId - UUID from emails table
+ * @param userId - User ID who owns the email
+ * @param email - Email content for embedding
+ */
+export async function storeEmailEmbedding(
+  emailId: string,
+  userId: string,
+  email: {
+    from: string;
+    subject: string;
+    body: string;
+    messageId: string;
+    threadId?: string;
+    receivedAt?: string;
+  }
+): Promise<void> {
+  try {
+    const pgVector = getPgVector();
+
+    // Prepare content for embedding
+    const content = prepareEmailContent(email);
+
+    if (!content || content.length < 10) {
+      console.log(`[Embeddings] Skipping empty/short email: ${emailId}`);
+      return;
+    }
+
+    console.log(`[Embeddings] Generating embedding for email: ${emailId}`);
+
+    // Generate embedding
+    const embedding = await generateEmbedding(content);
+
+    // Store in vector DB with metadata
+    await pgVector.upsert({
+      indexName: INDEX_NAME,
+      vectors: [embedding],
+      metadata: [
+        {
+          emailId,
+          userId,
+          messageId: email.messageId,
+          threadId: email.threadId || null,
+          from: email.from,
+          subject: email.subject,
+          receivedAt: email.receivedAt || null,
+          // Store a snippet for retrieval display (first 200 chars)
+          snippet: content.substring(0, 200),
+        },
+      ],
+    });
+
+    console.log(`[Embeddings] Stored embedding for email: ${emailId}`);
+  } catch (error) {
+    // Log but don't fail - embeddings are enhancement
+    console.error(`[Embeddings] Failed to store embedding:`, {
+      error: error instanceof Error ? error.message : error,
+      emailId,
+    });
+  }
+}
+
+/**
+ * Search for similar emails using semantic search
+ *
+ * @param userId - User ID to scope search
+ * @param query - Search query text
+ * @param topK - Number of results to return
+ * @returns Array of similar emails with scores
+ */
+export async function searchSimilarEmails(
+  userId: string,
+  query: string,
+  topK: number = 5
+): Promise<
+  Array<{
+    emailId: string;
+    messageId: string;
+    from: string;
+    subject: string;
+    snippet: string;
+    score: number;
+  }>
+> {
+  try {
+    const pgVector = getPgVector();
+
+    // Generate embedding for query
+    const queryEmbedding = await generateEmbedding(query);
+
+    // Search with user filter
+    const results = await pgVector.query({
+      indexName: INDEX_NAME,
+      queryVector: queryEmbedding,
+      topK,
+      filter: { userId },
+      includeVector: false,
+    });
+
+    return results.map((r) => ({
+      emailId: r.metadata?.emailId as string,
+      messageId: r.metadata?.messageId as string,
+      from: r.metadata?.from as string,
+      subject: r.metadata?.subject as string,
+      snippet: r.metadata?.snippet as string,
+      score: r.score || 0,
+    }));
+  } catch (error) {
+    console.error(`[Embeddings] Search failed:`, {
+      error: error instanceof Error ? error.message : error,
+      userId,
+    });
+    return [];
+  }
+}

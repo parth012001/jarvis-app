@@ -1,6 +1,7 @@
 import { createUserAgent } from '@/lib/mastra/agent-factory';
 import { db } from '@/lib/db';
 import { emailDrafts, emails } from '@/lib/db/schema';
+import { storeEmailEmbedding } from './embeddings';
 
 /**
  * Email Processor
@@ -69,6 +70,20 @@ async function storeEmail(
     }).returning({ id: emails.id });
 
     console.log(`[EmailProcessor] Email stored: ${email.messageId} -> ${stored.id}`);
+
+    // Generate and store embedding (async, non-blocking)
+    storeEmailEmbedding(stored.id, userId, {
+      from: email.from,
+      subject: email.subject,
+      body: email.body,
+      messageId: email.messageId,
+      threadId: email.threadId,
+      receivedAt: email.receivedAt,
+    }).catch((err) => {
+      // Log but don't fail - embedding is enhancement
+      console.error(`[EmailProcessor] Embedding failed:`, err);
+    });
+
     return stored.id;
   } catch (error) {
     // Log but don't fail - storage is enhancement, not critical path
