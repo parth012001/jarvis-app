@@ -1,6 +1,6 @@
 import { createUserAgent } from '@/lib/mastra/agent-factory';
 import { db } from '@/lib/db';
-import { emailDrafts } from '@/lib/db/schema';
+import { emailDrafts, emails } from '@/lib/db/schema';
 
 /**
  * Email Processor
@@ -13,10 +13,71 @@ export interface IncomingEmail {
   messageId: string;
   threadId?: string;
   from: string;
+  to?: string;
   subject: string;
   body: string;
   snippet?: string;
   receivedAt?: string;
+  labels?: string[];
+}
+
+/**
+ * Store an incoming email in the database for RAG
+ *
+ * This is called before draft generation. Storing emails enables
+ * semantic search for context in future responses.
+ *
+ * @returns The stored email ID, or null if already exists
+ */
+async function storeEmail(
+  userId: string,
+  email: IncomingEmail
+): Promise<string | null> {
+  try {
+    // Check if email already stored (idempotent)
+    const existing = await db.query.emails.findFirst({
+      where: (e, { and, eq }) =>
+        and(eq(e.userId, userId), eq(e.messageId, email.messageId)),
+    });
+
+    if (existing) {
+      console.log(`[EmailProcessor] Email already stored: ${email.messageId}`);
+      return existing.id;
+    }
+
+    // Parse received date
+    let receivedAt: Date | null = null;
+    if (email.receivedAt) {
+      const parsed = new Date(email.receivedAt);
+      if (!isNaN(parsed.getTime())) {
+        receivedAt = parsed;
+      }
+    }
+
+    // Store the email
+    const [stored] = await db.insert(emails).values({
+      userId,
+      messageId: email.messageId,
+      threadId: email.threadId || null,
+      fromAddress: email.from,
+      toAddress: email.to || null,
+      subject: email.subject || null,
+      body: email.body || null,
+      snippet: email.snippet || null,
+      receivedAt,
+      labels: email.labels || null,
+    }).returning({ id: emails.id });
+
+    console.log(`[EmailProcessor] Email stored: ${email.messageId} -> ${stored.id}`);
+    return stored.id;
+  } catch (error) {
+    // Log but don't fail - storage is enhancement, not critical path
+    console.error(`[EmailProcessor] Failed to store email:`, {
+      error: error instanceof Error ? error.message : error,
+      messageId: email.messageId,
+    });
+    return null;
+  }
 }
 
 /**
@@ -36,7 +97,10 @@ export async function processEmailWithAgent(
   });
 
   try {
-    // Check if we already processed this email (avoid duplicates)
+    // Step 1: Store email for RAG (idempotent - safe to call multiple times)
+    await storeEmail(userId, email);
+
+    // Step 2: Check if we already processed this email (avoid duplicates)
     const existingDraft = await db.query.emailDrafts.findFirst({
       where: (drafts, { and, eq }) =>
         and(

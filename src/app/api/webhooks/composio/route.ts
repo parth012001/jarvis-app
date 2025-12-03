@@ -183,6 +183,23 @@ function extractEmailData(payload: any): IncomingEmail {
     (data.headers?.from) ||
     '';
 
+  // Try to extract recipient
+  const to =
+    data.to ||
+    data.recipient ||
+    data.toAddress ||
+    data.to_address ||
+    (data.headers?.to) ||
+    '';
+
+  // Try to extract labels
+  const labels =
+    data.labels ||
+    data.labelIds ||
+    data.label_ids ||
+    data.tags ||
+    [];
+
   // Try to extract subject
   const subject =
     data.subject ||
@@ -224,10 +241,12 @@ function extractEmailData(payload: any): IncomingEmail {
     messageId,
     threadId: threadId || undefined,
     from,
+    to: to || undefined,
     subject,
     body,
     snippet: snippet || undefined,
     receivedAt: receivedAt || undefined,
+    labels: Array.isArray(labels) && labels.length > 0 ? labels : undefined,
   };
 }
 

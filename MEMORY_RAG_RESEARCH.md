@@ -198,7 +198,93 @@ const graphTool = createGraphRAGTool({
 
 ---
 
-## Part 4: Recommended Architecture
+## Part 4: Email Storage Strategy
+
+### The Decision: Store Emails Locally
+
+**Currently, we don't store received emails** - they flow through the webhook, get processed, and are discarded. We only keep:
+- `originalEmailId` (for duplicate detection)
+- `originalThreadId` (for threading replies)
+
+**For RAG to work, we need to store emails with embeddings.**
+
+### Options Evaluated
+
+| Option | Description | Verdict |
+|--------|-------------|---------|
+| **A: Store in DB** | Create `emails` table, store everything with embeddings | ✅ Recommended |
+| **B: Fetch on-demand** | Query Gmail API when context needed | ❌ Too slow, API dependent |
+| **C: Hybrid** | Store metadata + embeddings, fetch body from Gmail | ❌ Added complexity, minimal benefit |
+
+### Why Option A (Store Everything)
+
+**Pros:**
+- **Speed**: Semantic search in <100ms vs calling Gmail API every time
+- **Reliability**: Works even if Gmail API is slow/down
+- **Control**: We own the data, can index/query however we want
+- **RAG-ready**: Embeddings are pre-computed, agent gets instant context
+
+**Cons:**
+- **Storage cost**: ~1.5KB per email embedding (1536 floats) + metadata
+- **Sync complexity**: Need to handle deletions/updates (or ignore - emails are mostly immutable)
+- **Duplication**: Same data in Gmail and our DB
+
+### Scale Considerations
+
+| Email Volume | Storage (embeddings only) | Recommendation |
+|--------------|---------------------------|----------------|
+| <10K emails | ~15MB | Store everything |
+| 10K-100K | 15-150MB | Store everything, use HNSW index |
+| 100K+ | 150MB+ | Consider storing only recent N months |
+
+For a personal assistant with one user's emails, we're looking at 5K-50K emails total. That's ~75-750MB including full content. Trivial for Neon.
+
+### Proposed `emails` Table Schema
+
+```sql
+CREATE TABLE emails (
+  id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+  user_id TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  message_id TEXT NOT NULL,           -- Gmail's unique message ID
+  thread_id TEXT,                      -- Gmail's thread ID
+  from_address TEXT NOT NULL,
+  to_address TEXT,
+  subject TEXT,
+  body TEXT,                           -- Full email content
+  snippet TEXT,                        -- Short preview
+  received_at TIMESTAMP,
+  labels TEXT[],                       -- Gmail labels
+  embedding VECTOR(1536),              -- Pre-computed embedding
+  created_at TIMESTAMP DEFAULT NOW(),
+
+  UNIQUE(user_id, message_id)
+);
+
+-- Indexes
+CREATE INDEX emails_user_id_idx ON emails(user_id);
+CREATE INDEX emails_user_received_idx ON emails(user_id, received_at DESC);
+CREATE INDEX emails_embedding_idx ON emails USING hnsw (embedding vector_cosine_ops);
+```
+
+### Integration with Current System
+
+The webhook flow becomes:
+
+```
+Email arrives → Composio webhook fires
+                      ↓
+┌─────────────────────────────────────────────────────┐
+│ 1. Extract email data (existing)                    │
+│ 2. Store email in `emails` table (NEW)              │
+│ 3. Generate embedding, store in same row (NEW)      │
+│ 4. Process with agent (existing)                    │
+│ 5. Save draft to `email_drafts` (existing)          │
+└─────────────────────────────────────────────────────┘
+```
+
+---
+
+## Part 5: System Architecture
 
 ```
 ┌──────────────────────────────────────────────────────────────┐
@@ -233,7 +319,7 @@ const graphTool = createGraphRAGTool({
 
 ---
 
-## Part 5: Implementation Roadmap
+## Part 6: Implementation Roadmap
 
 ### Phase 1: Core Memory (1-2 days)
 - [ ] Enable pgvector extension in Neon
@@ -242,12 +328,13 @@ const graphTool = createGraphRAGTool({
 - [ ] Add working memory template for user profile
 - [ ] Test basic semantic recall
 
-### Phase 2: Email Embedding (2-3 days)
-- [ ] Create email chunking pipeline
-- [ ] Embed emails on webhook receipt
+### Phase 2: Email Storage & Embedding (2-3 days)
+- [ ] Create `emails` table with vector column
+- [ ] Update webhook to store incoming emails
+- [ ] Generate embeddings on webhook receipt
 - [ ] Create context retrieval tool for agent
 - [ ] Test semantic search on past emails
-- [ ] Add to draft generation flow
+- [ ] Add context to draft generation flow
 
 ### Phase 3: Enhanced Context (1-2 days)
 - [ ] Add metadata filtering (by sender, date range, labels)

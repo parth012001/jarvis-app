@@ -205,6 +205,43 @@ export const emailTriggers = pgTable('email_triggers', {
 }));
 
 // ============================================================================
+// EMAILS (stored for RAG context)
+// ============================================================================
+
+/**
+ * Emails table - stores incoming emails for semantic search
+ *
+ * Emails are stored when received via Composio webhook.
+ * This enables RAG: the agent can search past emails for context
+ * when drafting responses.
+ *
+ * Note: Embedding column will be added in Step 2 once storage is verified.
+ */
+export const emails = pgTable('emails', {
+  id: uuid('id').defaultRandom().primaryKey(),
+  userId: text('user_id')
+    .notNull()
+    .references(() => users.id, { onDelete: 'cascade' }),
+  messageId: text('message_id').notNull(),      // Gmail's unique message ID
+  threadId: text('thread_id'),                   // Gmail's thread ID
+  fromAddress: text('from_address').notNull(),
+  toAddress: text('to_address'),
+  subject: text('subject'),
+  body: text('body'),                            // Full email content
+  snippet: text('snippet'),                      // Short preview
+  receivedAt: timestamp('received_at'),
+  labels: text('labels').array(),                // Gmail labels
+  createdAt: timestamp('created_at').defaultNow().notNull(),
+}, (table) => ({
+  // Prevent duplicate emails per user
+  uniqueUserMessage: unique().on(table.userId, table.messageId),
+  // Fast user lookups
+  userIdIdx: index('emails_user_id_idx').on(table.userId),
+  // Chronological sorting
+  userReceivedIdx: index('emails_user_received_idx').on(table.userId, table.receivedAt),
+}));
+
+// ============================================================================
 // TYPE EXPORTS
 // ============================================================================
 
@@ -231,3 +268,7 @@ export type NewEmailDraft = typeof emailDrafts.$inferInsert;
 // Email trigger types
 export type EmailTrigger = typeof emailTriggers.$inferSelect;
 export type NewEmailTrigger = typeof emailTriggers.$inferInsert;
+
+// Email types (for RAG)
+export type Email = typeof emails.$inferSelect;
+export type NewEmail = typeof emails.$inferInsert;
