@@ -1,4 +1,5 @@
-import { createUserAgent } from '@/lib/mastra/agent-factory';
+import { mastra } from '@/mastra';
+import { RuntimeContext } from '@mastra/core/runtime-context';
 import { db } from '@/lib/db';
 import { emailDrafts, emails } from '@/lib/db/schema';
 import { storeEmailEmbedding } from './embeddings';
@@ -129,27 +130,12 @@ export async function processEmailWithAgent(
       return;
     }
 
-    // Create a specialized email drafting agent
-    const agent = await createUserAgent(userId, {
-      name: 'Email Draft Assistant',
-      instructions: `You are an email assistant. Your job is to draft professional, helpful responses to incoming emails.
+    // Get email drafter agent from Mastra instance
+    const agent = mastra.getAgent('emailDrafterAgent');
 
-Instructions:
-- Analyze the email content and generate an appropriate reply
-- Be concise but thorough
-- Match the tone of the original email (formal/casual)
-- Include an appropriate greeting and sign-off
-- Generate ONLY the email body - no "Subject:" line
-- Do not include phrases like "Here's a draft response:"
-- Write as if you ARE the person replying
-
-If the email is:
-- A newsletter/promotional: Generate a brief acknowledgment or suggest unsubscribing
-- A meeting request: Confirm availability or ask for alternatives
-- A question: Provide a helpful answer
-- A notification: Acknowledge receipt appropriately
-- Spam/irrelevant: Generate a polite decline or suggest marking as spam`,
-    });
+    // Create RuntimeContext with userId for dynamic tool loading
+    const runtimeContext = new RuntimeContext();
+    runtimeContext.set('userId', userId);
 
     // Build the prompt with email context
     const emailBody = email.body || email.snippet || '(No content)';
@@ -171,8 +157,8 @@ Generate a professional and helpful reply. Remember to:
 
     console.log(`[EmailProcessor] Generating draft for: ${email.subject}`);
 
-    // Generate the draft response
-    const response = await agent.generate(prompt);
+    // Generate the draft response with RuntimeContext
+    const response = await agent.generate(prompt, { runtimeContext });
     const draftContent = response.text;
 
     if (!draftContent || draftContent.trim().length === 0) {

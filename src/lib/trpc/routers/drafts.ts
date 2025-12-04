@@ -3,7 +3,8 @@ import { z } from 'zod';
 import { emailDrafts, emailTriggers, integrations } from '@/lib/db/schema';
 import { eq, and, desc } from 'drizzle-orm';
 import { createGmailTrigger, deleteGmailTrigger } from '@/lib/composio/triggers';
-import { createUserAgent } from '@/lib/mastra/agent-factory';
+import { mastra } from '@/mastra';
+import { RuntimeContext } from '@mastra/core/runtime-context';
 import { TRPCError } from '@trpc/server';
 
 /**
@@ -119,13 +120,12 @@ export const draftsRouter = router({
       }
 
       try {
-        // Create agent with Gmail tools to send the email
-        const agent = await createUserAgent(ctx.userId, {
-          name: 'Email Sender',
-          instructions: `You are an email sending assistant. Your only job is to send emails using the Gmail send email tool.
-When asked to send an email, use the GMAIL_SEND_EMAIL tool with the exact parameters provided.
-Do not modify the content. Just send it as-is.`,
-        });
+        // Get email sender agent from Mastra instance
+        const agent = mastra.getAgent('emailSenderAgent');
+
+        // Create RuntimeContext with userId for dynamic tool loading
+        const runtimeContext = new RuntimeContext();
+        runtimeContext.set('userId', ctx.userId);
 
         // Build the send prompt
         const sendPrompt = draft.originalThreadId
@@ -145,8 +145,8 @@ ${draft.body}`;
 
         console.log(`[Drafts] Sending email to ${draft.recipient}`);
 
-        // Send via agent and capture the response
-        const response = await agent.generate(sendPrompt);
+        // Send via agent and capture the response with RuntimeContext
+        const response = await agent.generate(sendPrompt, { runtimeContext });
 
         // Verify that a Gmail send tool was actually called
         // The response contains toolCalls array with the tools that were invoked

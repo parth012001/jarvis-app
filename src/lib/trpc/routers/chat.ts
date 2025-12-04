@@ -1,6 +1,6 @@
 import { router, protectedProcedure } from '../init';
 import { z } from 'zod';
-import { createUserAgent } from '@/lib/mastra/agent-factory';
+import { mastra } from '@/mastra';
 import { RuntimeContext } from '@mastra/core/runtime-context';
 
 /**
@@ -22,11 +22,11 @@ export const chatRouter = router({
       console.log(`[Chat] Message: "${input.message}"`);
 
       try {
-        // Create agent with user's connected tools
-        const agent = await createUserAgent(ctx.userId);
-        console.log(`[Chat] Agent created successfully`);
+        // Get chat agent from Mastra instance (no creation needed)
+        const agent = mastra.getAgent('chatAgent');
+        console.log(`[Chat] Using Mastra chat agent`);
 
-        // Create RuntimeContext with userId for tools that need it
+        // Create RuntimeContext with userId for dynamic tool loading
         const runtimeContext = new RuntimeContext();
         runtimeContext.set('userId', ctx.userId);
 

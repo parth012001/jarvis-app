@@ -2,7 +2,8 @@ import { router, protectedProcedure } from '../init';
 import { integrations } from '@/lib/db/schema';
 import { eq, and } from 'drizzle-orm';
 import { z } from 'zod';
-import { createUserAgent, getUserAvailableApps } from '@/lib/mastra/agent-factory';
+import { getUserAvailableApps } from '@/lib/mastra/agent-factory';
+import { invalidateUserCache } from '@/mastra/cache/tool-cache';
 import {
   initiateComposioConnection,
   waitForComposioConnection
@@ -77,6 +78,11 @@ export const integrationsRouter = router({
           eq(integrations.appName, input.appName)
         )
       );
+
+      // Invalidate tool cache after disconnecting
+      // This ensures agents don't have stale tools
+      console.log(`[tRPC] Invalidating tool cache for user ${ctx.userId} after disconnect`);
+      invalidateUserCache(ctx.userId);
 
       return {
         success: true,
@@ -211,6 +217,13 @@ export const integrationsRouter = router({
           })
           .where(eq(integrations.id, integration.id));
 
+        // Invalidate tool cache when integration status changes
+        // This ensures agents get fresh tools on next request
+        if (isActive) {
+          console.log(`[tRPC] Invalidating tool cache for user ${ctx.userId} after successful connection`);
+          invalidateUserCache(ctx.userId);
+        }
+
         return {
           status: connectedAccount.status,
           connectedAccountId: connectedAccount.id,
@@ -241,33 +254,6 @@ export const integrationsRouter = router({
       }
     }),
 
-  /**
-   * Chat with the user's AI agent
-   * Creates an agent with user's connected tools and sends a message
-   */
-  chat: protectedProcedure
-    .input(
-      z.object({
-        message: z.string().min(1).max(5000),
-      })
-    )
-    .mutation(async ({ ctx, input }) => {
-      try {
-        // Create agent with user's connected tools
-        const agent = await createUserAgent(ctx.userId);
-
-        // Generate response
-        const response = await agent.generate(input.message);
-
-        return {
-          response: response.text,
-          toolCalls: response.toolCalls || [],
-        };
-      } catch (error) {
-        console.error('[tRPC] Agent chat error:', error);
-        throw new Error(
-          `Failed to process chat: ${error instanceof Error ? error.message : 'Unknown error'}`
-        );
-      }
-    }),
+  // NOTE: The chat endpoint has been removed as it duplicates functionality
+  // in src/lib/trpc/routers/chat.ts. Use chatRouter.sendMessage instead.
 });
