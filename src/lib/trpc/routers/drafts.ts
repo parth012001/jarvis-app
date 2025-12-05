@@ -128,20 +128,27 @@ export const draftsRouter = router({
         runtimeContext.set('userId', ctx.userId);
 
         // Build the send prompt
+        // Note: For thread replies, don't include subject - GMAIL_REPLY_TO_THREAD
+        // inherits the thread's subject automatically and rejects a subject parameter
         const sendPrompt = draft.originalThreadId
-          ? `Send a reply email with these exact details:
+          ? `Send a reply to an existing email thread using GMAIL_REPLY_TO_THREAD.
+
+IMPORTANT: Only pass these parameters to the tool:
+- thread_id: ${draft.originalThreadId}
+- recipient_email: ${draft.recipient}
+- message_body: (the body below)
+
+Do NOT pass subject, attachment, cc, bcc, or any other optional parameters.
+
+Body to send:
+${draft.body}`
+          : `Send a new email using GMAIL_SEND_EMAIL with these exact details:
 To: ${draft.recipient}
 Subject: ${draft.subject}
 Body:
 ${draft.body}
 
-This is a reply to thread ID: ${draft.originalThreadId}
-Use the Gmail reply functionality if available.`
-          : `Send an email with these exact details:
-To: ${draft.recipient}
-Subject: ${draft.subject}
-Body:
-${draft.body}`;
+Do NOT pass attachment, cc, bcc, or any other optional parameters unless explicitly needed.`;
 
         console.log(`[Drafts] Sending email to ${draft.recipient}`);
 
