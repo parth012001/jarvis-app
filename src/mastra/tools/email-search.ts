@@ -1,115 +1,55 @@
 /**
  * Email Search Tool
  *
- * Exposes the email embeddings RAG system as an explicit Mastra tool.
- * Agents can use this to search past emails for context when drafting replies
- * or answering questions about email history.
+ * Uses Mastra's built-in createVectorQueryTool for semantic search over emails.
+ * Leverages the centralized PgVector instance registered in the Mastra instance.
  *
- * Uses existing PgVector + embeddings infrastructure.
+ * The tool automatically filters by userId via RuntimeContext, ensuring users
+ * can only search their own emails.
+ *
+ * Index: email_embeddings (created by scripts/test/create-email-index.mjs)
+ * Embedding model: text-embedding-3-small (1536 dimensions)
  */
 
-import { createTool } from '@mastra/core/tools';
-import { z } from 'zod';
-import { searchSimilarEmails } from '@/lib/email/embeddings';
+import { createVectorQueryTool } from '@mastra/rag';
+import { openai } from '@ai-sdk/openai';
 
 /**
  * Email search tool for semantic search over user's email history
  *
- * @example
- * Agent can call:
- * ```
- * searchEmails({ query: "emails from John about the project", limit: 5 })
- * ```
+ * Usage:
+ * 1. Set userId filter in RuntimeContext before calling agent:
+ *    ```typescript
+ *    runtimeContext.set('filter', { userId: ctx.userId });
+ *    ```
  *
- * Returns:
- * ```
- * {
- *   results: [
- *     {
- *       emailId: "uuid",
- *       messageId: "gmail-id",
- *       from: "John Doe <john@example.com>",
- *       subject: "Project Update",
- *       snippet: "First 200 chars of email...",
- *       score: 0.87
- *     }
- *   ]
- * }
- * ```
+ * 2. Agent can then search emails naturally:
+ *    "Find emails from John about the project deadline"
+ *
+ * The tool will:
+ * - Convert query to embedding using text-embedding-3-small
+ * - Search the email_embeddings index in PgVector
+ * - Filter results by userId (from RuntimeContext)
+ * - Return matching emails with metadata (from, subject, snippet, score)
  */
-export const emailSearchTool = createTool({
+export const emailSearchTool = createVectorQueryTool({
   id: 'searchEmails',
+  vectorStoreName: 'pgVector',
+  indexName: 'email_embeddings',
+  model: openai.embedding('text-embedding-3-small'),
   description: `Search past emails using semantic search. Use this to find relevant context from previous conversations before drafting replies or answering questions about email history.
 
-Examples:
-- "emails from John about the project deadline"
-- "meeting invitations from last month"
-- "conversations about budget approvals"
+Examples of when to use this tool:
+- User asks about past conversations: "What did John say about the deadline?"
+- Drafting a reply and need context: "Find previous emails in this thread"
+- Looking for specific information: "Emails about budget approvals"
+- Finding emails from specific people: "Recent emails from the marketing team"
 
-Returns matching emails with sender, subject, and snippet.`,
+The tool returns matching emails with:
+- from: Sender's email address
+- subject: Email subject line
+- snippet: Preview of email content
+- score: Relevance score (0-1, higher is better)
 
-  inputSchema: z.object({
-    query: z
-      .string()
-      .describe(
-        'Natural language search query (e.g., "emails from Alice about the contract")'
-      ),
-    limit: z
-      .number()
-      .optional()
-      .default(5)
-      .describe('Maximum number of results to return (default: 5)'),
-  }),
-
-  execute: async ({ context, runtimeContext }) => {
-    // Get userId from RuntimeContext (passed by agent at runtime)
-    const userId = runtimeContext.get('userId') as string;
-
-    if (!userId) {
-      console.error('[Email Search Tool] No userId in RuntimeContext');
-      return {
-        success: false,
-        error: 'User context not available',
-        results: [],
-      };
-    }
-
-    console.log(
-      `[Email Search Tool] Searching for user ${userId}: "${context.query}" (limit: ${context.limit})`
-    );
-
-    try {
-      // Use existing embeddings search function
-      const results = await searchSimilarEmails(
-        userId,
-        context.query,
-        context.limit
-      );
-
-      console.log(
-        `[Email Search Tool] Found ${results.length} matching emails`
-      );
-
-      return {
-        success: true,
-        results: results.map((r) => ({
-          emailId: r.emailId,
-          messageId: r.messageId,
-          from: r.from,
-          subject: r.subject,
-          snippet: r.snippet,
-          relevanceScore: r.score,
-        })),
-        count: results.length,
-      };
-    } catch (error) {
-      console.error('[Email Search Tool] Search failed:', error);
-      return {
-        success: false,
-        error:
-          error instanceof Error ? error.message : 'Unknown search error',
-        results: [],
-      };
-    }
-  },
+Note: Results are automatically filtered to the current user's emails only.`,
 });

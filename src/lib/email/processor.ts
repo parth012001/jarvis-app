@@ -134,8 +134,10 @@ export async function processEmailWithAgent(
     const agent = mastra.getAgent('emailDrafterAgent');
 
     // Create RuntimeContext with userId for dynamic tool loading
+    // and filter for email search (scopes searches to this user's emails)
     const runtimeContext = new RuntimeContext();
     runtimeContext.set('userId', userId);
+    runtimeContext.set('filter', { userId });
 
     // Build the prompt with email context
     const emailBody = email.body || email.snippet || '(No content)';

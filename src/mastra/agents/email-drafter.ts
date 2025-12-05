@@ -8,7 +8,7 @@
  * Features:
  * - Analyzes incoming email content and tone
  * - Generates contextually appropriate responses
- * - Can search past email history for context using RAG
+ * - Can search past email history for context using RAG (via createVectorQueryTool)
  * - Matches tone (formal/casual)
  */
 
@@ -81,6 +81,7 @@ Remember: You're drafting on behalf of a busy professional. Be efficient, clear,
   model: openai('gpt-4o'),
 
   // Dynamic tool loading via RuntimeContext
+  // Email search filter is automatically applied via runtimeContext.get('filter')
   tools: async ({ runtimeContext }) => {
     const userId = runtimeContext.get('userId') as string;
 
@@ -94,10 +95,11 @@ Remember: You're drafting on behalf of a busy professional. Be efficient, clear,
     // Get cached user tools (Composio integrations)
     const userTools = await getUserTools(userId);
 
-    // Add email search tool for context
+    // Add email search tool (uses createVectorQueryTool)
+    // Filter is automatically applied via runtimeContext.get('filter')
     return {
       ...userTools,
-      emailSearchTool,
+      searchEmails: emailSearchTool,
     };
   },
 });

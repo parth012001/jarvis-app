@@ -27,8 +27,10 @@ export const chatRouter = router({
         console.log(`[Chat] Using Mastra chat agent`);
 
         // Create RuntimeContext with userId for dynamic tool loading
+        // and filter for email search (scopes searches to this user's emails)
         const runtimeContext = new RuntimeContext();
         runtimeContext.set('userId', ctx.userId);
+        runtimeContext.set('filter', { userId: ctx.userId });
 
         // Call the agent and get the response
         console.log(`[Chat] Calling agent.stream()...`);

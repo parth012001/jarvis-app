@@ -5,6 +5,7 @@
  * Handles general questions, tool usage, and interactions with user's connected apps.
  *
  * Uses dynamic tool loading via RuntimeContext to access user-specific Composio tools.
+ * Email search uses Mastra's createVectorQueryTool with centralized PgVector.
  */
 
 import { Agent } from '@mastra/core/agent';
@@ -51,6 +52,7 @@ Communication style:
   // 1. User-specific Composio integrations
   // 2. Tool caching (5-min TTL)
   // 3. No agent recreation on every request
+  // 4. Email search with automatic userId filtering via RuntimeContext.filter
   tools: async ({ runtimeContext }) => {
     const userId = runtimeContext.get('userId') as string;
 
@@ -64,10 +66,11 @@ Communication style:
     // Get cached user tools (Composio integrations)
     const userTools = await getUserTools(userId);
 
-    // Add email search tool (always available if emails table has data)
+    // Add email search tool (uses createVectorQueryTool)
+    // Filter is automatically applied via runtimeContext.get('filter')
     return {
       ...userTools,
-      emailSearchTool,
+      searchEmails: emailSearchTool,
     };
   },
 });

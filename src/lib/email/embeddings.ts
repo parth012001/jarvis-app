@@ -2,25 +2,14 @@
  * Email Embeddings Service
  *
  * Handles generating and storing embeddings for emails.
- * Uses Mastra PgVector for storage and AI SDK for embedding generation.
+ * Uses the centralized PgVector instance from Mastra for storage.
+ *
+ * Note: Search functionality is now handled by createVectorQueryTool
+ * in src/mastra/tools/email-search.ts - this file only handles storage.
  */
-import { PgVector } from '@mastra/pg';
+import { pgVector } from '@/mastra';
 import { embed } from 'ai';
 import { openai } from '@ai-sdk/openai';
-
-// Singleton PgVector instance
-let pgVectorInstance: PgVector | null = null;
-
-function getPgVector(): PgVector {
-  if (!pgVectorInstance) {
-    const connectionString = process.env.DATABASE_URL;
-    if (!connectionString) {
-      throw new Error('DATABASE_URL not set');
-    }
-    pgVectorInstance = new PgVector({ connectionString });
-  }
-  return pgVectorInstance;
-}
 
 // Constants
 const INDEX_NAME = 'email_embeddings';
@@ -66,6 +55,9 @@ async function generateEmbedding(content: string): Promise<number[]> {
 /**
  * Store email embedding in vector database
  *
+ * Uses the centralized PgVector instance from Mastra.
+ * Called when new emails arrive via webhook.
+ *
  * @param emailId - UUID from emails table
  * @param userId - User ID who owns the email
  * @param email - Email content for embedding
@@ -83,8 +75,6 @@ export async function storeEmailEmbedding(
   }
 ): Promise<void> {
   try {
-    const pgVector = getPgVector();
-
     // Prepare content for embedding
     const content = prepareEmailContent(email);
 
@@ -99,6 +89,7 @@ export async function storeEmailEmbedding(
     const embedding = await generateEmbedding(content);
 
     // Store in vector DB with metadata
+    // The userId is stored in metadata for filtering during search
     await pgVector.upsert({
       indexName: INDEX_NAME,
       vectors: [embedding],
@@ -124,59 +115,5 @@ export async function storeEmailEmbedding(
       error: error instanceof Error ? error.message : error,
       emailId,
     });
-  }
-}
-
-/**
- * Search for similar emails using semantic search
- *
- * @param userId - User ID to scope search
- * @param query - Search query text
- * @param topK - Number of results to return
- * @returns Array of similar emails with scores
- */
-export async function searchSimilarEmails(
-  userId: string,
-  query: string,
-  topK: number = 5
-): Promise<
-  Array<{
-    emailId: string;
-    messageId: string;
-    from: string;
-    subject: string;
-    snippet: string;
-    score: number;
-  }>
-> {
-  try {
-    const pgVector = getPgVector();
-
-    // Generate embedding for query
-    const queryEmbedding = await generateEmbedding(query);
-
-    // Search with user filter
-    const results = await pgVector.query({
-      indexName: INDEX_NAME,
-      queryVector: queryEmbedding,
-      topK,
-      filter: { userId },
-      includeVector: false,
-    });
-
-    return results.map((r) => ({
-      emailId: r.metadata?.emailId as string,
-      messageId: r.metadata?.messageId as string,
-      from: r.metadata?.from as string,
-      subject: r.metadata?.subject as string,
-      snippet: r.metadata?.snippet as string,
-      score: r.score || 0,
-    }));
-  } catch (error) {
-    console.error(`[Embeddings] Search failed:`, {
-      error: error instanceof Error ? error.message : error,
-      userId,
-    });
-    return [];
   }
 }
