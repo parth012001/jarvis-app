@@ -11,7 +11,7 @@
 
 import { db } from '@/lib/db';
 import { emails } from '@/lib/db/schema';
-import { eq, and, desc, ne, sql, lt } from 'drizzle-orm';
+import { eq, and, desc, ne, sql, lt, or, isNull } from 'drizzle-orm';
 import type { IncomingEmail } from './processor';
 
 // ============================================================================
@@ -207,7 +207,7 @@ async function fetchSenderEmails(
       eq(emails.userId, userId),
       sql`LOWER(${emails.fromAddress}) LIKE LOWER(${'%' + senderEmail + '%'})`,
       ne(emails.messageId, excludeMessageId),
-      lt(emails.receivedAt, new Date())
+      or(lt(emails.receivedAt, new Date()), isNull(emails.receivedAt))
     ),
     orderBy: [desc(emails.receivedAt)], // Most recent first
     limit: config.maxSenderEmails,
