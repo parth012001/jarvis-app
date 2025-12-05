@@ -229,6 +229,7 @@ function extractEmailData(payload: any): IncomingEmail {
 
   // Try to extract received timestamp
   const receivedAt =
+    data.message_timestamp ||
     data.internalDate ||
     data.internal_date ||
     data.receivedAt ||
