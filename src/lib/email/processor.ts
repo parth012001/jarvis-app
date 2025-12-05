@@ -3,6 +3,7 @@ import { RuntimeContext } from '@mastra/core/runtime-context';
 import { db } from '@/lib/db';
 import { emailDrafts, emails } from '@/lib/db/schema';
 import { storeEmailEmbedding } from './embeddings';
+import { buildEmailContext, formatContextForPrompt } from './context-builder';
 
 /**
  * Email Processor
@@ -139,19 +140,39 @@ export async function processEmailWithAgent(
     runtimeContext.set('userId', userId);
     runtimeContext.set('filter', { userId });
 
-    // Build the prompt with email context
-    const emailBody = email.body || email.snippet || '(No content)';
-    const prompt = `Please draft a response to this incoming email:
+    // Build context (thread history + sender history)
+    console.log(`[EmailProcessor] Building context for email: ${email.subject}`);
+    const context = await buildEmailContext(userId, email);
+    console.log(`[EmailProcessor] Context built in ${context.metadata.contextBuildTimeMs}ms`, {
+      threadEmails: context.metadata.threadEmailsLoaded,
+      senderEmails: context.metadata.senderEmailsLoaded,
+      tokenEstimate: context.metadata.tokenEstimate,
+      truncated: context.metadata.truncated,
+    });
 
+    // Format context for prompt injection
+    const contextSection = formatContextForPrompt(context);
+
+    // Build the prompt with pre-loaded context
+    const emailBody = email.body || email.snippet || '(No content)';
+    const prompt = `You are drafting a reply to an incoming email. I have pre-loaded relevant context for you.
+
+${contextSection}
+=== INCOMING EMAIL (REPLY TO THIS) ===
 From: ${email.from}
 Subject: ${email.subject}
 
-Email Content:
----
 ${emailBody}
 ---
 
-Generate a professional and helpful reply. Remember to:
+Generate a professional and helpful reply. Consider the context above when crafting your response:
+- If this is part of a thread, maintain continuity with previous messages
+- If you've corresponded with this sender before, match the established tone
+- Reference past conversations when relevant
+
+You still have access to the searchEmails tool if you need additional context not provided above.
+
+Remember to:
 1. Match the appropriate tone
 2. Be concise but complete
 3. Include greeting and sign-off
