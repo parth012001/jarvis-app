@@ -32,8 +32,21 @@ export async function POST(req: NextRequest) {
       );
     }
 
-    // Log payload for debugging (remove in production)
-    console.log('[Composio Webhook] Payload:', JSON.stringify(payload, null, 2));
+    // Log payload summary for monitoring (always)
+    console.log('[Composio Webhook] Payload summary:', {
+      type: payload.type,
+      messageId: payload.data?.message_id,
+      threadId: payload.data?.thread_id,
+      from: payload.data?.sender,
+      subject: payload.data?.subject,
+      timestamp: payload.data?.message_timestamp,
+      triggerId: payload.data?.trigger_nano_id,
+    });
+
+    // Full payload only in development or when DEBUG_WEBHOOKS is enabled
+    if (process.env.NODE_ENV === 'development' || process.env.DEBUG_WEBHOOKS === 'true') {
+      console.log('[Composio Webhook] Full payload:', JSON.stringify(payload, null, 2));
+    }
 
     // Extract event type - Composio sends different formats
     const eventType = payload.type ||
